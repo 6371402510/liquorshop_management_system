@@ -1,0 +1,1059 @@
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, TriangleAlert as AlertTriangle, Package, ChevronUp, ShieldAlert, ChevronDown, Upload, Download, FileDown, AlertCircle, TrendingDown, Clock3, TrendingUp, Warehouse, Store } from 'lucide-react'
+import clsx from 'clsx'
+import * as XLSX from 'xlsx'
+
+// Import API functions
+import { getProducts, createProduct, updateProduct, deleteProduct } from '../apiservices/inventoryapi'
+
+// ─── Dropdown Constants ───
+const CATEGORIES = ['WHISKY', 'RUM', 'VODKA', 'GIN', 'BEER', 'WINE', 'BRANDY', 'OTHER']
+
+const SUB_CATEGORIES_BY_CATEGORY = {
+  'WHISKY': ['PREMIUM', 'SUPER PREMIUM', 'ULTRA PREMIUM', 'REGULAR', 'ECONOMY', 'DELUXE'],
+  'RUM': ['PREMIUM', 'SUPER PREMIUM', 'REGULAR', 'ECONOMY', 'DELUXE', 'DARK', 'WHITE', 'SPICED', 'GOLD'],
+  'VODKA': ['PREMIUM', 'SUPER PREMIUM', 'REGULAR', 'ECONOMY', 'FLAVOURED', 'NEUTRAL'],
+  'GIN': ['PREMIUM', 'LONDON DRY', 'PLYMOUTH', 'OLD TOM', 'FLAVOURED', 'NAVY STRENGTH'],
+  'BEER': ['PREMIUM', 'STRONG', 'MAGNUM', 'LIGHT', 'SMOOTH', 'ELEPHANT', 'BLONDE', 'WHITE', 'WIT', 'EXTRA STRONG', '5000', '10000', 'ORIGINAL', 'SILVER', 'CRAFT'],
+  'WINE': ['RED', 'WHITE', 'ROSE', 'SPARKLING', 'DESSERT', 'FORTIFIED', 'DRY', 'SWEET', 'SEMI SWEET'],
+  'BRANDY': ['PREMIUM', 'SUPER PREMIUM', 'REGULAR', 'ECONOMY', 'VS', 'VSOP', 'XO'],
+  'OTHER': ['PREMIUM', 'REGULAR', 'ECONOMY', 'DELUXE'],
+}
+
+const DEFAULT_SUB_CATEGORIES = ['PREMIUM', 'SUPER PREMIUM', 'ULTRA PREMIUM', 'REGULAR', 'ECONOMY', 'DELUXE']
+
+const PRODUCT_TYPES = ['IMFL', 'BEER', 'WINE', 'COUNTRY LIQUOR']
+
+const BOTTLE_SIZES_BY_TYPE = {
+  'IMFL': ['90ml', '180ml', '250ml', '330ml', '375ml', '500ml', '750ml', '1000ml'],
+  'BEER': ['275ml', '330ml', '500ml', '650ml'],
+  'WINE': ['375ml', '500ml', '750ml', '1000ml', '2000ml'],
+  'COUNTRY LIQUOR': ['200ml', '300ml', '500ml', '750ml'],
+}
+const DEFAULT_SIZES = BOTTLE_SIZES_BY_TYPE['IMFL']
+
+const SIZE_TRADITIONAL_MAP = {
+  '90ml':   { traditionalName: 'Peg / Miniature', bottlesPerCase: 96 },
+  '180ml':  { traditionalName: 'Nip / Quarter',   bottlesPerCase: 48 },
+  '250ml':  { traditionalName: 'Quarter Plus',    bottlesPerCase: 36 },
+  '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 36 },
+  '300ml':  { traditionalName: 'Half Plus',       bottlesPerCase: 30 },
+  '330ml':  { traditionalName: 'Small / Pony',    bottlesPerCase: 30 },
+  '375ml':  { traditionalName: 'Pint / Half',     bottlesPerCase: 24 },
+  '500ml':  { traditionalName: 'Medium',          bottlesPerCase: 18 },
+  '650ml':  { traditionalName: 'Large Beer',      bottlesPerCase: 12 },
+  '750ml':  { traditionalName: 'Quart / Bottle',  bottlesPerCase: 12 },
+  '1000ml': { traditionalName: 'Liter',           bottlesPerCase: 9 },
+  '2000ml': { traditionalName: 'Double Liter',    bottlesPerCase: 6 },
+}
+
+const UNITS = ['BOTTLE', 'CASE', 'BOX', 'PACK', 'CARTON', 'PINT', 'QUARTER', 'CAN']
+const PACKING_TYPES = ['BOTTLE', 'CAN', 'TETRA PACK']
+const BARCODE_TYPES = ['EAN13', 'CODE128', 'UPC', 'QR']
+const ITEM_STATUSES = ['ACTIVE', 'INACTIVE']
+
+const emptyForm = {
+  item_code: '', barcode: '', name: '', short_name: '', brand: '', category: 'WHISKY',
+  sub_category: 'PREMIUM', product_type: 'IMFL', bottle_size: '750ml',
+  traditional_name: 'Quart / Bottle',
+  bottles_per_case: '12',
+  unit: 'BOTTLE',
+  packing_type: 'BOTTLE', purchase_rate: '', landing_cost: '', mrp: '', sale_price: '',
+  discount_allowed: false, discount_percent: '', VAT_rate: '35',
+  margin_percent: '', hsn_code: '2208', opening_stock: '', current_stock: '',
+  godown_stock: '', counter_stock: '',
+  reorder_level: '5', maximum_stock: '', damage_stock: '0', reserved_stock: '0',
+  stock_location: '', batch_number: '', expiry_date: '', manufacture_date: '',
+  fast_billing_key: '', favourite_item: false, allow_return: true, allow_exchange: true,
+  print_name: '', barcode_type: 'EAN13', barcode_print_qty: '1',
+  auto_barcode_generate: false, store_id: '', branch_name: '', transfer_allowed: false,
+  status: 'ACTIVE',
+}
+
+const EXCEL_HEADER_MAP = {
+  'item code': 'item_code', 'barcode': 'barcode', 'product name': 'name', 'name': 'name',
+  'short name': 'short_name', 'brand name': 'brand', 'brand': 'brand', 'category': 'category',
+  'sub category': 'sub_category', 'product type': 'product_type', 'bottle size': 'bottle_size',
+  'size': 'bottle_size',
+  'traditional name': 'traditional_name',
+  'bottles per case': 'bottles_per_case',
+  'unit': 'unit', 'packing type': 'packing_type',
+  'purchase rate': 'purchase_rate', 'purchase price': 'purchase_rate', 'landing cost': 'landing_cost',
+  'mrp': 'mrp', 'sale price': 'sale_price', 'selling price': 'sale_price',
+  'discount allowed': 'discount_allowed', 'discount %': 'discount_percent', 'discount': 'discount_percent',
+  'vat %': 'VAT_rate', 'vat': 'VAT_rate', 'margin %': 'margin_percent', 'margin': 'margin_percent',
+  'hsn code': 'hsn_code', 'opening stock': 'opening_stock', 'current stock': 'current_stock',
+  'stock': 'current_stock', 'godown stock': 'godown_stock', 'godown': 'godown_stock',
+  'counter stock': 'counter_stock', 'counter': 'counter_stock',
+  'reorder level': 'reorder_level', 'maximum stock': 'maximum_stock',
+  'damage stock': 'damage_stock', 'reserved stock': 'reserved_stock', 'stock location': 'stock_location',
+  'batch number': 'batch_number', 'expiry date': 'expiry_date', 'manufacture date': 'manufacture_date',
+  'fast billing key': 'fast_billing_key', 'print name': 'print_name',
+}
+
+function getTraditionalData(bottleSize) {
+  return SIZE_TRADITIONAL_MAP[bottleSize] || { traditionalName: '', bottlesPerCase: '' }
+}
+
+function getSubCategories(category) {
+  return SUB_CATEGORIES_BY_CATEGORY[category] || DEFAULT_SUB_CATEGORIES
+}
+
+// ─── Stock Classification Helpers ───
+function classifyProduct(p) {
+  const stock = p.current_stock || 0
+  const reorder = p.reorder_level || 0
+  const maxStock = p.maximum_stock || 0
+
+  if (stock <= 0) return 'out_of_stock'
+  if (stock <= reorder) return 'low_stock'
+  // Dead stock: overstocked beyond maximum_stock, or more than 3x reorder level
+  if (maxStock > 0 ? stock > maxStock : stock > reorder * 3) return 'dead_stock'
+  // Slow moving: stock is above 2x reorder level but within limits
+  if (stock > reorder * 2) return 'slow_moving'
+  // Fast moving: stock between reorder and 2x reorder (depletes quickly)
+  return 'fast_moving'
+}
+
+export default function Inventory() {
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('ALL')
+  const [stores] = useState([{ id: 'store1', name: 'Main Branch' }, { id: 'store2', name: 'Warehouse' }])
+
+  const [showModal, setShowModal] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [editingItemId, setEditingItemId] = useState(null)
+  const [auditData, setAuditData] = useState({})
+
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const [sortField, setSortField] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
+
+  const fileInputRef = useRef(null)
+
+  const getVolumeStandard = () => {
+    const sizeInMl = parseInt(form.bottle_size) || 0
+    const unit = form.unit.toUpperCase()
+    switch (unit) {
+      case 'CASE': {
+        const bpc = Number(form.bottles_per_case) || 12
+        const total = bpc * sizeInMl
+        return total >= 1000 ? `${(total / 1000).toFixed(2)} Liters` : `${total} ml`
+      }
+      case 'BOX': return '12 Liters'
+      case 'CARTON': { const t = 24 * sizeInMl; return t >= 1000 ? `${(t / 1000).toFixed(2)} Liters` : `${t} ml` }
+      case 'PACK': { const t = 6 * sizeInMl; return t >= 1000 ? `${(t / 1000).toFixed(2)} Liters` : `${t} ml` }
+      default: return sizeInMl >= 1000 ? `${(sizeInMl / 1000).toFixed(2)} Liters` : `${sizeInMl} ml`
+    }
+  }
+
+  useEffect(() => { fetchProducts() }, [])
+
+  const fetchProducts = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await getProducts()
+      setProducts(data)
+    } catch (err) {
+      setError(err.message || 'Failed to load products')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const generateItemCode = () => {
+    const prefix = 'ITM'
+    const timestamp = Date.now().toString().slice(-6)
+    const random = Math.floor(Math.random() * 100).toString().padStart(2, '0')
+    return `${prefix}${timestamp}${random}`
+  }
+
+  const handleBottleSizeChange = (newSize) => {
+    const tradData = getTraditionalData(newSize)
+    setForm(f => ({
+      ...f,
+      bottle_size: newSize,
+      traditional_name: tradData.traditionalName || f.traditional_name,
+      bottles_per_case: tradData.bottlesPerCase !== '' ? String(tradData.bottlesPerCase) : f.bottles_per_case,
+    }))
+  }
+
+  const handleProductTypeChange = (newType) => {
+    const allowedSizes = BOTTLE_SIZES_BY_TYPE[newType] || DEFAULT_SIZES
+    setForm(f => {
+      const newSize = allowedSizes.includes(f.bottle_size) ? f.bottle_size : allowedSizes[0]
+      const tradData = getTraditionalData(newSize)
+      return {
+        ...f,
+        product_type: newType,
+        bottle_size: newSize,
+        traditional_name: tradData.traditionalName || f.traditional_name,
+        bottles_per_case: tradData.bottlesPerCase !== '' ? String(tradData.bottlesPerCase) : f.bottles_per_case,
+      }
+    })
+  }
+
+  const handleCategoryChange = (newCategory) => {
+    const newSubCategories = getSubCategories(newCategory)
+    setForm(f => {
+      const isValidSubCategory = newSubCategories.includes(f.sub_category)
+      return {
+        ...f,
+        category: newCategory,
+        sub_category: isValidSubCategory ? f.sub_category : newSubCategories[0],
+      }
+    })
+  }
+
+  // Auto-calculate current_stock from godown + counter
+  const handleGodownStockChange = (val) => {
+    const godown = Number(val) || 0
+    const counter = Number(form.counter_stock) || 0
+    setForm(f => ({
+      ...f,
+      godown_stock: val,
+      current_stock: String(godown + counter),
+    }))
+  }
+
+  const handleCounterStockChange = (val) => {
+    const counter = Number(val) || 0
+    const godown = Number(form.godown_stock) || 0
+    setForm(f => ({
+      ...f,
+      counter_stock: val,
+      current_stock: String(godown + counter),
+    }))
+  }
+
+  const openAdd = () => {
+    const defaultTradData = getTraditionalData(emptyForm.bottle_size)
+    setForm({
+      ...emptyForm,
+      item_code: generateItemCode(),
+      traditional_name: defaultTradData.traditionalName,
+      bottles_per_case: String(defaultTradData.bottlesPerCase),
+    })
+    setEditingId(null)
+    setEditingItemId(null)
+    setAuditData({})
+    setError('')
+    setShowModal(true)
+  }
+
+  const openEdit = (product) => {
+    setForm({
+      item_code: product.item_code || '', barcode: product.barcode || '', name: product.name || '',
+      short_name: product.short_name || '', brand: product.brand || '', category: product.category || 'WHISKY',
+      sub_category: product.sub_category || 'PREMIUM', product_type: product.product_type || 'IMFL',
+      bottle_size: product.bottle_size || '750ml',
+      traditional_name: product.traditional_name || getTraditionalData(product.bottle_size || '750ml').traditionalName,
+      bottles_per_case: product.bottles_per_case || getTraditionalData(product.bottle_size || '750ml').bottlesPerCase,
+      unit: product.unit || 'BOTTLE', packing_type: product.packing_type || 'BOTTLE',
+      purchase_rate: product.purchase_rate || '', landing_cost: product.landing_cost || '', mrp: product.mrp || '',
+      sale_price: product.sale_price || '', discount_allowed: product.discount_allowed || false,
+      discount_percent: product.discount_percent || '', VAT_rate: product.vat_rate || product.VAT_rate || '35',
+      margin_percent: product.margin_percent || '', hsn_code: product.hsn_code || '2208',
+      opening_stock: product.opening_stock || '', current_stock: product.current_stock || '',
+      godown_stock: product.godown_stock || '', counter_stock: product.counter_stock || '',
+      reorder_level: product.reorder_level || '5', maximum_stock: product.maximum_stock || '',
+      damage_stock: product.damage_stock || '0', reserved_stock: product.reserved_stock || '0',
+      stock_location: product.stock_location || '', batch_number: product.batch_number || '',
+      expiry_date: product.expiry_date || '', manufacture_date: product.manufacture_date || '',
+      fast_billing_key: product.fast_billing_key || '', favourite_item: product.favourite_item || false,
+      allow_return: product.allow_return !== false, allow_exchange: product.allow_exchange !== false,
+      print_name: product.print_name || '', barcode_type: product.barcode_type || 'EAN13',
+      barcode_print_qty: product.barcode_print_qty || '1', auto_barcode_generate: product.auto_barcode_generate || false,
+      store_id: product.store_id || '', branch_name: product.branch_name || '', transfer_allowed: product.transfer_allowed || false,
+      status: product.status || 'ACTIVE',
+    })
+    setEditingId(product.id)
+    setEditingItemId(product.item_id || null)
+    setAuditData({
+      created_by: product.created_by, created_at: product.created_at,
+      modified_by: product.modified_by, modified_at: product.updated_at,
+    })
+    setError('')
+    setShowModal(true)
+  }
+
+  const downloadTemplate = () => {
+    const headers = [
+      'Item Code', 'Barcode', 'Product Name', 'Short Name', 'Brand Name', 'Category',
+      'Sub Category', 'Product Type', 'Bottle Size', 'Traditional Name', 'Bottles Per Case',
+      'Unit', 'Packing Type', 'Purchase Rate', 'Landing Cost', 'MRP', 'Sale Price',
+      'Discount Allowed', 'Discount %', 'VAT %', 'Margin %', 'HSN Code',
+      'Opening Stock', 'Current Stock', 'Godown Stock', 'Counter Stock',
+      'Reorder Level', 'Maximum Stock',
+      'Damage Stock', 'Reserved Stock', 'Stock Location', 'Batch Number',
+      'Expiry Date', 'Manufacture Date', 'Fast Billing Key', 'Print Name',
+    ]
+    const sampleRow = [
+      'ITM001', '8901234567890', 'Royal Stag 750ml', 'RS750', 'Royal Stag', 'WHISKY',
+      'REGULAR', 'IMFL', '750ml', 'Quart / Bottle', '12',
+      'BOTTLE', 'BOTTLE', '650', '680', '850', '800',
+      'TRUE', '5', '18', '23', '2208',
+      '100', '100', '70', '30',
+      '5', '500',
+      '0', '0', 'Rack-A1', 'B2024-001',
+      '2026-12-31', '2024-01-01', 'F1', 'Royal Stag',
+    ]
+    const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Product Template')
+    XLSX.writeFile(wb, 'Product_Import_Template.xlsx')
+  }
+
+  // ─── EXPORT CURRENT TABLE DATA TO EXCEL ───
+  const handleExportExcel = () => {
+    if (sorted.length === 0) {
+      alert('No data to export')
+      return
+    }
+
+    const exportData = sorted.map(p => ({
+      'Item Code': p.item_code || '',
+      'Barcode': p.barcode || '',
+      'Product Name': p.name || '',
+      'Short Name': p.short_name || '',
+      'Brand': p.brand || '',
+      'Category': p.category || '',
+      'Sub Category': p.sub_category || '',
+      'Product Type': p.product_type || '',
+      'Bottle Size': p.bottle_size || '',
+      'Traditional Name': p.traditional_name || '',
+      'Bottles Per Case': p.bottles_per_case || '',
+      'Unit': p.unit || '',
+      'Packing Type': p.packing_type || '',
+      'Purchase Rate': p.purchase_rate || 0,
+      'Landing Cost': p.landing_cost || 0,
+      'MRP': p.mrp || 0,
+      'Sale Price': p.sale_price || 0,
+      'Discount Allowed': p.discount_allowed ? 'TRUE' : 'FALSE',
+      'Discount %': p.discount_percent || 0,
+      'VAT %': p.VAT_rate || p.vat_rate || 0,
+      'Margin %': p.margin_percent || 0,
+      'HSN Code': p.hsn_code || '',
+      'Opening Stock': p.opening_stock || 0,
+      'Godown Stock': p.godown_stock || 0,
+      'Counter Stock': p.counter_stock || 0,
+      'Current Stock': p.current_stock || 0,
+      'Reorder Level': p.reorder_level || 0,
+      'Maximum Stock': p.maximum_stock || 0,
+      'Damage Stock': p.damage_stock || 0,
+      'Reserved Stock': p.reserved_stock || 0,
+      'Stock Location': p.stock_location || '',
+      'Batch Number': p.batch_number || '',
+      'Expiry Date': p.expiry_date || '',
+      'Manufacture Date': p.manufacture_date || '',
+      'Fast Billing Key': p.fast_billing_key || '',
+      'Print Name': p.print_name || '',
+      'Status': p.status || 'ACTIVE',
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(exportData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory Data')
+    XLSX.writeFile(wb, `Inventory_Export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  const handleExcelUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const bstr = evt.target.result
+      const wb = XLSX.read(bstr, { type: 'binary', cellDates: true })
+      const wsname = wb.SheetNames[0]
+      const ws = wb.Sheets[wsname]
+      const data = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, dateNF: 'yyyy-mm-dd' })
+      if (data.length > 0) {
+        const row = data[0]
+        const mappedForm = { ...emptyForm }
+        Object.keys(row).forEach((excelHeader) => {
+          const normalizedHeader = excelHeader.toLowerCase().trim()
+          const formKey = EXCEL_HEADER_MAP[normalizedHeader]
+          if (formKey) {
+            let value = row[excelHeader]
+            if (['discount_allowed', 'favourite_item', 'allow_return', 'allow_exchange', 'auto_barcode_generate', 'transfer_allowed'].includes(formKey)) {
+              value = value === true || value === 1 || String(value).toUpperCase() === 'TRUE' || String(value).toUpperCase() === 'YES'
+            } else { value = String(value) }
+            mappedForm[formKey] = value
+          }
+        })
+        if (!mappedForm.item_code) mappedForm.item_code = generateItemCode()
+        if (!mappedForm.traditional_name || mappedForm.traditional_name === '') {
+          const tradData = getTraditionalData(mappedForm.bottle_size)
+          mappedForm.traditional_name = tradData.traditionalName
+        }
+        if (!mappedForm.bottles_per_case || mappedForm.bottles_per_case === '' || mappedForm.bottles_per_case === '0') {
+          const tradData = getTraditionalData(mappedForm.bottle_size)
+          if (tradData.bottlesPerCase !== '') mappedForm.bottles_per_case = String(tradData.bottlesPerCase)
+        }
+        const validSubCategories = getSubCategories(mappedForm.category)
+        if (!validSubCategories.includes(mappedForm.sub_category)) {
+          mappedForm.sub_category = validSubCategories[0]
+        }
+        // Auto-calculate current_stock from godown + counter
+        const gs = Number(mappedForm.godown_stock) || 0
+        const cs = Number(mappedForm.counter_stock) || 0
+        if (gs > 0 || cs > 0) {
+          mappedForm.current_stock = String(gs + cs)
+        }
+        setForm(mappedForm)
+        setEditingId(null)
+        setEditingItemId(null)
+        setAuditData({})
+        setShowModal(true)
+        if (data.length > 1) alert(`Note: Excel contains ${data.length} rows. Only the first row was loaded into the form.`)
+      } else { alert('No data found in the Excel file.') }
+    }
+    reader.readAsBinaryString(file)
+    e.target.value = ''
+  }
+
+  const handleSave = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+
+    const payload = {
+      ...form,
+      purchase_rate: Number(form.purchase_rate) || 0, landing_cost: Number(form.landing_cost) || 0,
+      mrp: Number(form.mrp) || 0, sale_price: Number(form.sale_price) || 0,
+      discount_percent: Number(form.discount_percent) || 0, VAT_rate: Number(form.VAT_rate) || 0,
+      margin_percent: Number(form.margin_percent) || 0, opening_stock: Number(form.opening_stock) || 0,
+      current_stock: Number(form.current_stock) || 0,
+      godown_stock: Number(form.godown_stock) || 0,
+      counter_stock: Number(form.counter_stock) || 0,
+      reorder_level: Number(form.reorder_level) || 0,
+      maximum_stock: Number(form.maximum_stock) || 0, damage_stock: Number(form.damage_stock) || 0,
+      reserved_stock: Number(form.reserved_stock) || 0, barcode_print_qty: Number(form.barcode_print_qty) || 1,
+      bottles_per_case: Number(form.bottles_per_case) || 0,
+      store_id: form.store_id || null,
+    }
+
+    try {
+      if (editingId) {
+        await updateProduct(editingId, payload)
+      } else {
+        await createProduct(payload)
+      }
+      setShowModal(false)
+      fetchProducts()
+    } catch (err) {
+      setError(err.message || 'Failed to save product. Check if Item Code/Barcode already exists.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this product?')) return
+    try {
+      await deleteProduct(id)
+      fetchProducts()
+    } catch (err) {
+      alert(err.message || 'Failed to delete product.')
+    }
+  }
+
+  const handleSort = (field) => {
+    if (sortField === field) { setSortDir(d => d === 'asc' ? 'desc' : 'asc') }
+    else { setSortField(field); setSortDir('asc') }
+  }
+
+  // ─── Computed Stock Classifications ───
+  const stockCounts = products.reduce((acc, p) => {
+    const cls = classifyProduct(p)
+    acc[cls] = (acc[cls] || 0) + 1
+    return acc
+  }, {})
+
+  const lowStockCount = stockCounts['low_stock'] || 0
+  const deadStockCount = stockCounts['dead_stock'] || 0
+  const slowMovingCount = stockCounts['slow_moving'] || 0
+  const fastMovingCount = stockCounts['fast_moving'] || 0
+  const totalDamageStock = products.reduce((acc, p) => acc + (p.damage_stock || 0), 0)
+
+  const sorted = [...products]
+    .filter(p => {
+      const q = search.toLowerCase()
+      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q) || (p.barcode || '').includes(q) || (p.item_code || '').toLowerCase().includes(q)
+      const matchCat = categoryFilter === 'ALL' || p.category === categoryFilter
+      return matchSearch && matchCat
+    })
+    .sort((a, b) => {
+      let av = a[sortField], bv = b[sortField]
+      if (typeof av === 'string') av = av.toLowerCase()
+      if (typeof bv === 'string') bv = bv.toLowerCase()
+      return sortDir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1)
+    })
+
+  const SortIcon = ({ field }) => (
+    sortField === field
+      ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)
+      : <ChevronUp className="w-3 h-3 opacity-30" />
+  )
+
+  const ToggleSwitch = ({ label, fieldKey }) => (
+    <div className="flex items-center justify-between h-[38px]">
+      <span className="text-xs font-medium text-gray-600 dark:text-gray-400 mr-3">{label}</span>
+      <div className="flex items-center">
+        <button type="button" onClick={() => setForm(f => ({ ...f, [fieldKey]: !f[fieldKey] }))} className={clsx('relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none', form[fieldKey] ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-600')}>
+          <span className={clsx('pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out', form[fieldKey] ? 'translate-x-4' : 'translate-x-0')} />
+        </button>
+        <span className="ml-2 text-xs text-gray-500 w-6">{form[fieldKey] ? 'Yes' : 'No'}</span>
+      </div>
+    </div>
+  )
+
+  const currentSizes = BOTTLE_SIZES_BY_TYPE[form.product_type] || DEFAULT_SIZES
+  const currentSubCategories = getSubCategories(form.category)
+
+  return (
+    <div className="space-y-4">
+      <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
+
+      {/* ─── Toolbar ─── */}
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex flex-wrap gap-2 flex-1">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <input type="text" placeholder="Search name, brand, code, barcode..." value={search} onChange={e => setSearch(e.target.value)} className="input-field pl-8 w-64" />
+          </div>
+          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="input-field w-36">
+            <option value="ALL">All Categories</option>
+            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={downloadTemplate} className="btn-secondary bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600">
+            <Download className="w-4 h-4" /> Template
+          </button>
+          <button type="button" onClick={() => fileInputRef.current.click()} className="btn-secondary">
+            <Upload className="w-4 h-4" /> Import
+          </button>
+          {/* ─── EXPORT BUTTON ─── */}
+          <button type="button" onClick={handleExportExcel} className="btn-secondary bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50">
+            <FileDown className="w-4 h-4" /> Export
+          </button>
+          <button onClick={openAdd} className="btn-primary">
+            <Plus className="w-4 h-4" /> Add Product
+          </button>
+        </div>
+      </div>
+
+      {/* ─── Summary Cards ─── */}
+      <div className="flex flex-wrap gap-3">
+        <div className="card px-4 py-2.5 flex items-center gap-2">
+          <Package className="w-4 h-4 text-primary-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{products.length} Products</span>
+        </div>
+        <div className="card px-4 py-2.5 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{lowStockCount} Low Stock</span>
+        </div>
+        <div className="card px-4 py-2.5 flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 text-red-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{totalDamageStock} Damage Stock</span>
+        </div>
+        <div className="card px-4 py-2.5 flex items-center gap-2">
+          <TrendingDown className="w-4 h-4 text-red-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{deadStockCount} Dead Stock</span>
+        </div>
+        <div className="card px-4 py-2.5 flex items-center gap-2">
+          <Clock3 className="w-4 h-4 text-orange-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{slowMovingCount} Slow Moving</span>
+        </div>
+        <div className="card px-4 py-2.5 flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-green-500" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{fastMovingCount} Fast Moving</span>
+        </div>
+      </div>
+
+      {/* ─── Product Table ─── */}
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-gray-800">
+                {[
+                  { label: 'Product', field: 'name' },
+                  { label: 'Item Code', field: 'item_code' },
+                  { label: 'Category', field: 'category' },
+                  { label: 'Sub Cat.', field: 'sub_category' },
+                  { label: 'Type', field: 'product_type' },
+                  { label: 'Size', field: 'bottle_size' },
+                  { label: 'Trad. Name', field: 'traditional_name' },
+                  { label: 'Btls/Case', field: 'bottles_per_case' },
+                  { label: 'Sale ₹', field: 'sale_price' },
+                  { label: 'Godown', field: 'godown_stock' },
+                  { label: 'Counter', field: 'counter_stock' },
+                  { label: 'Total Stock', field: 'current_stock' },
+                  { label: 'Status', field: 'status' },
+                ].map(({ label, field }) => (
+                  <th key={field} onClick={() => handleSort(field)} className="table-header text-left cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 select-none whitespace-nowrap">
+                    <span className="flex items-center gap-1">{label} <SortIcon field={field} /></span>
+                  </th>
+                ))}
+                {/* <th className="table-header text-right">Actions</th> */}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+              {loading ? (
+                <tr><td colSpan={14} className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary-500 mx-auto" /></td></tr>
+              ) : sorted.length === 0 ? (
+                <tr><td colSpan={14} className="text-center py-10 text-sm text-gray-400">No products found</td></tr>
+              ) : sorted.map(p => {
+                const stock = p.current_stock ?? 0
+                const reorder = p.reorder_level ?? 0
+                const godown = p.godown_stock ?? 0
+                const counter = p.counter_stock ?? 0
+                return (
+                  <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                    <td className="table-cell">
+                      <p className="font-medium text-gray-800 dark:text-gray-200">{p.name}</p>
+                      <p className="text-xs text-gray-400">{p.brand}{p.short_name ? ` · ${p.short_name}` : ''}</p>
+                    </td>
+                    <td className="table-cell font-mono text-xs text-gray-500">{p.item_code || '—'}</td>
+                    <td className="table-cell"><span className="badge-info">{p.category}</span></td>
+                    <td className="table-cell"><span className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{p.sub_category || '—'}</span></td>
+                    <td className="table-cell text-xs text-gray-500">{p.product_type || '—'}</td>
+                    <td className="table-cell text-xs text-gray-500">{p.bottle_size || '—'}</td>
+                    <td className="table-cell text-xs text-gray-500">{p.traditional_name || '—'}</td>
+                    <td className="table-cell text-xs text-gray-500 font-mono">{p.bottles_per_case || '—'}</td>
+                    <td className="table-cell font-medium">₹{p.sale_price || 0}</td>
+                    {/* Godown Stock */}
+                    <td className="table-cell">
+                      <div className="flex items-center gap-1.5">
+                        <Warehouse className="w-3 h-3 text-blue-400 flex-shrink-0" />
+                        <span className={clsx('font-semibold text-sm', godown > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400')}>{godown}</span>
+                      </div>
+                    </td>
+                    {/* Counter Stock */}
+                    <td className="table-cell">
+                      <div className="flex items-center gap-1.5">
+                        <Store className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                        <span className={clsx('font-semibold text-sm', counter > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400')}>{counter}</span>
+                      </div>
+                    </td>
+                    {/* Total Stock */}
+                    <td className="table-cell">
+                      <span className={clsx('font-semibold', stock <= reorder ? 'text-red-500' : stock <= reorder * 2 ? 'text-amber-500' : 'text-emerald-500')}>{stock}</span>
+                      {stock <= reorder && stock > 0 && <AlertTriangle className="w-3 h-3 text-amber-500 inline ml-1" />}
+                      {stock <= 0 && <span className="ml-1 text-[10px] text-red-400 font-medium">OUT</span>}
+                    </td>
+                    <td className="table-cell">
+                      <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', p.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400')}>{p.status || 'ACTIVE'}</span>
+                    </td>
+                    {/* <td className="table-cell">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </td> */}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ─── Add/Edit Modal ─── */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white dark:bg-gray-900 px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between z-10">
+              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+                {editingId ? 'Edit Product' : 'Add Product'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {error && (
+              <div className="mx-6 mt-4 flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              </div>
+            )}
+
+            <form onSubmit={handleSave} className="p-6 space-y-8">
+
+              {/* ── 1. Basic Item Information ── */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Basic Item Information</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Item ID</label>
+                    <input value={editingItemId || 'Auto-assigned'} disabled className="input-field bg-gray-50 dark:bg-gray-800 text-gray-400 cursor-not-allowed" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Item Code *</label>
+                    <input required value={form.item_code} onChange={e => setForm(f => ({ ...f, item_code: e.target.value }))} className="input-field font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Barcode</label>
+                    <input value={form.barcode} onChange={e => setForm(f => ({ ...f, barcode: e.target.value }))} className="input-field font-mono" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Product Name *</label>
+                    <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Short Name</label>
+                    <input value={form.short_name} onChange={e => setForm(f => ({ ...f, short_name: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Brand Name</label>
+                    <input value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Category *</label>
+                    <select required value={form.category} onChange={e => handleCategoryChange(e.target.value)} className="input-field">
+                      {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Sub Category
+                      <span className="ml-1 text-[10px] text-blue-500 font-normal">(by category)</span>
+                    </label>
+                    <select value={form.sub_category} onChange={e => setForm(f => ({ ...f, sub_category: e.target.value }))} className="input-field">
+                      {currentSubCategories.map(sc => <option key={sc}>{sc}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Product Type</label>
+                    <select value={form.product_type} onChange={e => handleProductTypeChange(e.target.value)} className="input-field">
+                      {PRODUCT_TYPES.map(pt => <option key={pt}>{pt}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Bottle Size</label>
+                    <select value={form.bottle_size} onChange={e => handleBottleSizeChange(e.target.value)} className="input-field">
+                      {currentSizes.map(bs => <option key={bs}>{bs}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Traditional Name
+                      <span className="ml-1 text-[10px] text-blue-500 font-normal">(auto-filled)</span>
+                    </label>
+                    <input value={form.traditional_name} onChange={e => setForm(f => ({ ...f, traditional_name: e.target.value }))} className="input-field" placeholder="e.g. Quart / Bottle" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Bottles Per Standard Case
+                      <span className="ml-1 text-[10px] text-blue-500 font-normal">(auto-filled)</span>
+                    </label>
+                    <input type="number" min="0" value={form.bottles_per_case} onChange={e => setForm(f => ({ ...f, bottles_per_case: e.target.value }))} className="input-field" placeholder="e.g. 12" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Unit</label>
+                    <select value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} className="input-field">
+                      {UNITS.map(u => <option key={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Packing Type</label>
+                    <select value={form.packing_type} onChange={e => setForm(f => ({ ...f, packing_type: e.target.value }))} className="input-field">
+                      {PACKING_TYPES.map(pt => <option key={pt}>{pt}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Volume (Auto-Calc)</label>
+                    <input type="text" value={getVolumeStandard()} readOnly className="input-field bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold cursor-not-allowed border-blue-200 dark:border-blue-800" />
+                  </div>
+                  <div className="md:col-span-3">
+                    <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-3">
+                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">📋 Size → Traditional Name Reference</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                        {Object.entries(SIZE_TRADITIONAL_MAP).map(([size, data]) => (
+                          <button key={size} type="button" onClick={() => handleBottleSizeChange(size)} className={clsx('text-left px-2.5 py-1.5 rounded-md border text-xs transition-all', form.bottle_size === size ? 'border-primary-400 bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 font-semibold ring-1 ring-primary-300' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:border-primary-300 hover:bg-primary-50 dark:hover:bg-primary-900/20')}>
+                            <span className="font-medium">{size}</span>
+                            <span className="block text-[10px] opacity-75">{data.traditionalName} · {data.bottlesPerCase}/case</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 2. Pricing & Tax ── */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Pricing & Tax</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Purchase Rate (₹)
+                      <span className="ml-1 text-[10px] text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="number" min="0" step="0.01" value={form.purchase_rate} onChange={e => setForm(f => ({ ...f, purchase_rate: e.target.value }))} className="input-field" placeholder="Enter at purchase time" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Landing Cost (₹)</label>
+                    <input type="number" min="0" step="0.01" value={form.landing_cost} onChange={e => setForm(f => ({ ...f, landing_cost: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">MRP (₹)</label>
+                    <input type="number" min="0" step="0.01" value={form.mrp} onChange={e => setForm(f => ({ ...f, mrp: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Sale Price (₹) *</label>
+                    <input required type="number" min="0" step="0.01" value={form.sale_price} onChange={e => setForm(f => ({ ...f, sale_price: e.target.value }))} className="input-field" />
+                  </div>
+                  <ToggleSwitch label="Discount Allowed" fieldKey="discount_allowed" />
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Discount %</label>
+                    <input type="number" min="0" step="0.01" value={form.discount_percent} onChange={e => setForm(f => ({ ...f, discount_percent: e.target.value }))} className="input-field" disabled={!form.discount_allowed} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">VAT %</label>
+                    <select value={form.VAT_rate} onChange={e => setForm(f => ({ ...f, VAT_rate: e.target.value }))} className="input-field">
+                      <option value="0">35%</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin %</label>
+                    <input type="number" min="0" step="0.01" value={form.margin_percent} onChange={e => setForm(f => ({ ...f, margin_percent: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">HSN Code</label>
+                    <input value={form.hsn_code} onChange={e => setForm(f => ({ ...f, hsn_code: e.target.value }))} className="input-field" />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 3. Stock & Inventory ── */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Stock & Inventory</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+
+                  {/* Godown & Counter Stock */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      <span className="inline-flex items-center gap-1"><Warehouse className="w-3 h-3 text-blue-500" /> Godown Stock</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.godown_stock}
+                      onChange={e => handleGodownStockChange(e.target.value)}
+                      className="input-field border-blue-200 dark:border-blue-800 focus:ring-blue-500"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      <span className="inline-flex items-center gap-1"><Store className="w-3 h-3 text-purple-500" /> Counter Stock</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.counter_stock}
+                      onChange={e => handleCounterStockChange(e.target.value)}
+                      className="input-field border-purple-200 dark:border-purple-800 focus:ring-purple-500"
+                      placeholder="0"
+                    />
+                  </div>
+
+                  {/* Current Stock (auto-calculated) */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Current Stock
+                      <span className="ml-1 text-[10px] text-emerald-500 font-normal">(auto = godown + counter)</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.current_stock}
+                      readOnly
+                      className="input-field bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 font-semibold cursor-not-allowed border-emerald-200 dark:border-emerald-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Opening Stock
+                      <span className="ml-1 text-[10px] text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="number" min="0" value={form.opening_stock} onChange={e => setForm(f => ({ ...f, opening_stock: e.target.value }))} className="input-field" placeholder="Updated via purchases" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Reorder Level
+                      <span className="ml-1 text-[10px] text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="number" min="0" value={form.reorder_level} onChange={e => setForm(f => ({ ...f, reorder_level: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Maximum Stock</label>
+                    <input type="number" min="0" value={form.maximum_stock} onChange={e => setForm(f => ({ ...f, maximum_stock: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Damage Stock</label>
+                    <input type="number" min="0" value={form.damage_stock} onChange={e => setForm(f => ({ ...f, damage_stock: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Reserved Stock</label>
+                    <input type="number" min="0" value={form.reserved_stock} onChange={e => setForm(f => ({ ...f, reserved_stock: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Stock Location</label>
+                    <input value={form.stock_location} onChange={e => setForm(f => ({ ...f, stock_location: e.target.value }))} className="input-field" placeholder="Rack/Shelf" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Batch Number</label>
+                    <input value={form.batch_number} onChange={e => setForm(f => ({ ...f, batch_number: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Expiry Date</label>
+                    <input type="date" value={form.expiry_date} onChange={e => setForm(f => ({ ...f, expiry_date: e.target.value }))} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Manufacture Date</label>
+                    <input type="date" value={form.manufacture_date} onChange={e => setForm(f => ({ ...f, manufacture_date: e.target.value }))} className="input-field" />
+                  </div>
+                </div>
+
+                {/* Stock Split Info Box */}
+                <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">📦 Stock Breakdown</p>
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex items-center gap-2">
+                      <Warehouse className="w-4 h-4 text-blue-500" />
+                      <span className="text-xs text-gray-500">Godown:</span>
+                      <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{Number(form.godown_stock) || 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Store className="w-4 h-4 text-purple-500" />
+                      <span className="text-xs text-gray-500">Counter:</span>
+                      <span className="text-sm font-bold text-purple-600 dark:text-purple-400">{Number(form.counter_stock) || 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-4">
+                      <Package className="w-4 h-4 text-emerald-500" />
+                      <span className="text-xs text-gray-500">Total:</span>
+                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{Number(form.current_stock) || 0}</span>
+                    </div>
+                    {(Number(form.damage_stock) || 0) > 0 && (
+                      <div className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-4">
+                        <ShieldAlert className="w-4 h-4 text-red-500" />
+                        <span className="text-xs text-gray-500">Damage:</span>
+                        <span className="text-sm font-bold text-red-600 dark:text-red-400">{Number(form.damage_stock) || 0}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 4. POS Billing ── */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">POS Billing</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Fast Billing Key</label>
+                    <input value={form.fast_billing_key} onChange={e => setForm(f => ({ ...f, fast_billing_key: e.target.value }))} className="input-field font-mono" placeholder="e.g. F1, F2" />
+                  </div>
+                  <ToggleSwitch label="Favourite Item" fieldKey="favourite_item" />
+                  <ToggleSwitch label="Allow Return" fieldKey="allow_return" />
+                  <ToggleSwitch label="Allow Exchange" fieldKey="allow_exchange" />
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Print Name</label>
+                    <input value={form.print_name} onChange={e => setForm(f => ({ ...f, print_name: e.target.value }))} className="input-field" />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 5. Barcode ── */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Barcode Details</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Barcode Type</label>
+                    <select value={form.barcode_type} onChange={e => setForm(f => ({ ...f, barcode_type: e.target.value }))} className="input-field">
+                      {BARCODE_TYPES.map(bt => <option key={bt}>{bt}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Barcode Print Qty</label>
+                    <input type="number" min="0" value={form.barcode_print_qty} onChange={e => setForm(f => ({ ...f, barcode_print_qty: e.target.value }))} className="input-field" />
+                  </div>
+                  <ToggleSwitch label="Auto Barcode Generate" fieldKey="auto_barcode_generate" />
+                </div>
+              </div>
+
+              {/* ── 6. Multi-Store ── */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Multi-Store (Optional)</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Store</label>
+                    <select value={form.store_id || ''} onChange={e => setForm(f => ({ ...f, store_id: e.target.value }))} className="input-field">
+                      <option value="">Select Store</option>
+                      {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Branch Name</label>
+                    <input value={form.branch_name} onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))} className="input-field" />
+                  </div>
+                  <ToggleSwitch label="Transfer Allowed" fieldKey="transfer_allowed" />
+                </div>
+              </div>
+
+              {/* ── 7. Audit ── */}
+              {editingId && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Audit & System</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Created By</label>
+                      <input value={auditData.created_by || 'System'} disabled className="input-field bg-gray-50 dark:bg-gray-800 text-gray-400 cursor-not-allowed" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Created Date</label>
+                      <input value={auditData.created_at ? new Date(auditData.created_at).toLocaleString() : '—'} disabled className="input-field bg-gray-50 dark:bg-gray-800 text-gray-400 cursor-not-allowed" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Modified By</label>
+                      <input value={auditData.modified_by || 'System'} disabled className="input-field bg-gray-50 dark:bg-gray-800 text-gray-400 cursor-not-allowed" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Modified Date</label>
+                      <input value={auditData.modified_at ? new Date(auditData.modified_at).toLocaleString() : '—'} disabled className="input-field bg-gray-50 dark:bg-gray-800 text-gray-400 cursor-not-allowed" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
+                      <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="input-field">
+                        {ITEM_STATUSES.map(s => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1 justify-center">Cancel</button>
+                <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">
+                  {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {saving ? 'Saving...' : editingId ? 'Update Product' : 'Add Product'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
