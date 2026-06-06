@@ -5,6 +5,7 @@ from datetime import datetime
 # ─── Product Schema for Godown POS ───
 class GodownProductResponse(BaseModel):
     id: int
+    company_id: Optional[int] = None # ─── ADDED
     item_code: Optional[str] = None
     barcode: Optional[str] = None
     name: str
@@ -29,9 +30,11 @@ class GodownCheckoutItem(BaseModel):
     unit_price: float
     discount: float = 0.0
     total_price: float
+    company_id: Optional[int] = None
 
 class GodownCheckoutRequest(BaseModel):
     invoice_number: str
+    company_id: Optional[int] = None 
     customer_name: str
     customer_phone: Optional[str] = ""
     total_amount: float
@@ -50,6 +53,7 @@ class GodownSaleItemResponse(BaseModel):
 
 class GodownSaleResponse(BaseModel):
     invoice_number: str
+    company_id: Optional[int] = None
     customer_name: str
     customer_phone: Optional[str] = ""
     total_amount: float

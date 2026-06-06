@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
 
-# ─── FIX: Import TransferItemResponse ───
 from .schema import StockTransferCreate, StockTransferResponse, TransferItemResponse
 from .service import get_transfers, create_transfer
 from .model import StockTransferItem
@@ -11,13 +10,16 @@ from .model import StockTransferItem
 router = APIRouter(prefix="/stock-transfers", tags=["Stock Transfers"])
 
 @router.get("/", response_model=List[StockTransferResponse])
-def list_transfers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return get_transfers(db, skip=skip, limit=limit)
+def list_transfers(
+    company_id: int | None = None, # ─── ADDED
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db)
+):
+    return get_transfers(db, company_id=company_id, skip=skip, limit=limit)
 
-# ─── ADDED: Endpoint to fetch items for a specific transfer ───
 @router.get("/{transfer_id}/items", response_model=List[TransferItemResponse])
 def get_transfer_items(transfer_id: int, db: Session = Depends(get_db)):
-    """Get all items for a specific stock transfer"""
     items = db.query(StockTransferItem).filter(StockTransferItem.transfer_id == transfer_id).all()
     if not items:
         raise HTTPException(status_code=404, detail="Transfer items not found")

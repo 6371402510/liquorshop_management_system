@@ -1,3 +1,5 @@
+# attendance/service.py
+
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from .model import Attendance
@@ -6,23 +8,19 @@ from sqlalchemy import func
 from .schema import MonthlyReportResponse
 from typing import Optional, List
 
+from employee.model import Employee
 
-# Import the Employee model to perform the join
-# Adjust the import path based on your project structure (e.g., from ..employees.model import Employee)
-from employee.model import Employee 
 
-def get_attendance(db: Session, date: str = None):
-    # Query Attendance and join with Employee to get name and code
+def get_attendance(db: Session, company_id: int, date: str = None):  # ← ADDED company_id
     query = db.query(Attendance, Employee.first_name, Employee.last_name, Employee.employee_code)\
-              .join(Employee, Attendance.employee_id == Employee.id)
+              .join(Employee, Attendance.employee_id == Employee.id)\
+              .filter(Attendance.company_id == company_id)  # ← ADDED FILTER
     
-    # Filter by date if provided
     if date:
         query = query.filter(Attendance.date == date)
         
     results = query.order_by(Attendance.check_in_time).all()
     
-    # Construct response with joined employee data
     response_data = []
     for record, first_name, last_name, code in results:
         resp = AttendanceResponse.model_validate(record)
@@ -32,10 +30,12 @@ def get_attendance(db: Session, date: str = None):
         
     return response_data
 
-def get_attendance_record(db: Session, attendance_id: int):
+
+def get_attendance_record(db: Session, attendance_id: int, company_id: int):  # ← ADDED company_id
     result = db.query(Attendance, Employee.first_name, Employee.last_name, Employee.employee_code)\
               .join(Employee, Attendance.employee_id == Employee.id)\
-              .filter(Attendance.id == attendance_id).first()
+              .filter(Attendance.id == attendance_id, Attendance.company_id == company_id)\
+              .first()
               
     if not result:
         return None
@@ -46,11 +46,13 @@ def get_attendance_record(db: Session, attendance_id: int):
     resp.employee_code = code
     return resp
 
+
 def create_attendance(db: Session, attendance_data: AttendanceCreate):
     # Check if attendance is already marked for this employee on this date
     existing = db.query(Attendance).filter(
         Attendance.employee_id == attendance_data.employee_id,
-        Attendance.date == attendance_data.date
+        Attendance.date == attendance_data.date,
+        Attendance.company_id == attendance_data.company_id  # ← ADDED company scope
     ).first()
     
     if existing:
@@ -64,11 +66,14 @@ def create_attendance(db: Session, attendance_data: AttendanceCreate):
     db.commit()
     db.refresh(db_record)
     
-    # Return using the join helper to include employee details
-    return get_attendance_record(db, db_record.id)
+    return get_attendance_record(db, db_record.id, attendance_data.company_id)
 
-def update_attendance(db: Session, attendance_id: int, attendance_data: AttendanceUpdate):
-    db_record = db.query(Attendance).filter(Attendance.id == attendance_id).first()
+
+def update_attendance(db: Session, attendance_id: int, attendance_data: AttendanceUpdate, company_id: int):  # ← ADDED company_id
+    db_record = db.query(Attendance).filter(
+        Attendance.id == attendance_id,
+        Attendance.company_id == company_id  # ← ADDED company scope
+    ).first()
     if not db_record:
         return None
     
@@ -79,11 +84,14 @@ def update_attendance(db: Session, attendance_id: int, attendance_data: Attendan
     db.commit()
     db.refresh(db_record)
     
-    # Return using the join helper to include employee details
-    return get_attendance_record(db, db_record.id)
+    return get_attendance_record(db, db_record.id, company_id)
 
-def delete_attendance(db: Session, attendance_id: int):
-    db_record = db.query(Attendance).filter(Attendance.id == attendance_id).first()
+
+def delete_attendance(db: Session, attendance_id: int, company_id: int):  # ← ADDED company_id
+    db_record = db.query(Attendance).filter(
+        Attendance.id == attendance_id,
+        Attendance.company_id == company_id  # ← ADDED company scope
+    ).first()
     if not db_record:
         return False
     
@@ -91,13 +99,15 @@ def delete_attendance(db: Session, attendance_id: int):
     db.commit()
     return True
 
-def get_monthly_report(db: Session, month: str):
+
+def get_monthly_report(db: Session, month: str, company_id: int):  # ← ADDED company_id
     query = db.query(
         Attendance.employee_id,
         Attendance.status,
         func.count(Attendance.id).label('count')
     ).filter(
-        Attendance.date.like(f"{month}%")
+        Attendance.date.like(f"{month}%"),
+        Attendance.company_id == company_id  # ← ADDED FILTER
     ).group_by(
         Attendance.employee_id,
         Attendance.status
@@ -120,14 +130,14 @@ def get_monthly_report(db: Session, month: str):
         if field:
             employee_data[row.employee_id][field] = row.count
             
-    employees = db.query(Employee).all()
+    # Only get employees for this company
+    employees = db.query(Employee).filter(Employee.company_id == company_id).all()
     emp_map = {e.id: e for e in employees}
     
     report = []
     for emp_id, counts in employee_data.items():
         emp = emp_map.get(emp_id)
         if emp:
-            # Working Days = Present + Paid Leave + (Half Day / 2)
             working_days = counts["present_days"] + counts["paid_leave_days"] + (counts["half_days"] / 2.0)
             report.append(MonthlyReportResponse(
                 employee_id=emp_id,
@@ -150,10 +160,10 @@ def get_monthly_report(db: Session, month: str):
     return report
 
 
-def get_employee_attendance_report(db: Session, employee_id: int, start_date: Optional[str] = None, end_date: Optional[str] = None):
+def get_employee_attendance_report(db: Session, employee_id: int, company_id: int, start_date: Optional[str] = None, end_date: Optional[str] = None):  # ← ADDED company_id
     query = db.query(Attendance, Employee.first_name, Employee.last_name, Employee.employee_code)\
               .join(Employee, Attendance.employee_id == Employee.id)\
-              .filter(Attendance.employee_id == employee_id)
+              .filter(Attendance.employee_id == employee_id, Attendance.company_id == company_id)  # ← ADDED FILTER
     
     if start_date:
         query = query.filter(Attendance.date >= start_date)

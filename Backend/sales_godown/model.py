@@ -7,6 +7,7 @@ class GodownSale(Base):
     __tablename__ = "godown_sales"
 
     id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, nullable=True, index=True) # ─── ADDED
     invoice_number = Column(String(50), unique=True, index=True)
     customer_name = Column(String(100))
     customer_phone = Column(String(15))
@@ -22,7 +23,7 @@ class GodownSaleItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sale_id = Column(Integer, ForeignKey("godown_sales.id"))
-    
+    company_id = Column(Integer, nullable=True, index=True) # ─── ADDED
     # ─── FIX: Point to "products.id" instead of "godown_products.id" ───
     product_id = Column(Integer, ForeignKey("products.id")) 
     

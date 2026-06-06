@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, Calendar, Loader2, AlertCircle, CalendarDays, UserCircle, FileText } from 'lucide-react'
+import { Search, Calendar, Loader2, AlertCircle, CalendarDays, UserCircle, FileText, Store } from 'lucide-react'
 import clsx from 'clsx'
 
 import { getAttendance, getMonthlyReport, getEmployeeReport } from '../apiservices/attendanceapi'
@@ -12,6 +12,10 @@ const TABS = [
 ]
 
 export default function AttendanceReports() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [activeTab, setActiveTab] = useState('MONTH')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -32,18 +36,42 @@ export default function AttendanceReports() {
   const [empStartDate, setEmpStartDate] = useState(new Date().toISOString().split('T')[0])
   const [empEndDate, setEmpEndDate] = useState(new Date().toISOString().split('T')[0])
 
+  // ─── Listen for company changes ───
   useEffect(() => {
-    fetchEmployees()
-  }, [])
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
 
+  // ─── Fetch employees when company changes ───
   useEffect(() => {
+    if (!companyId) {
+      setEmployees([])
+      return
+    }
+    fetchEmployees()
+  }, [companyId])
+
+  // ─── Fetch reports when filters or company change ───
+  useEffect(() => {
+    if (!companyId) return
     if (activeTab === 'DAY') fetchDayData()
     if (activeTab === 'MONTH') fetchMonthData()
-  }, [activeTab, selectedDate, selectedMonth])
+  }, [activeTab, selectedDate, selectedMonth, companyId])
 
   const fetchEmployees = async () => {
     try {
-      const data = await getEmployees()
+      const data = await getEmployees(Number(companyId))
       setEmployees(data || [])
     } catch (err) {
       console.error(err)
@@ -53,7 +81,7 @@ export default function AttendanceReports() {
   const fetchDayData = async () => {
     setLoading(true); setError('')
     try {
-      const data = await getAttendance(selectedDate)
+      const data = await getAttendance(Number(companyId), selectedDate)
       setDayData(data || [])
     } catch (err) { setError(err.message) } 
     finally { setLoading(false) }
@@ -62,7 +90,7 @@ export default function AttendanceReports() {
   const fetchMonthData = async () => {
     setLoading(true); setError('')
     try {
-      const data = await getMonthlyReport(selectedMonth)
+      const data = await getMonthlyReport(selectedMonth, Number(companyId))
       setMonthData(data || [])
     } catch (err) { setError(err.message) } 
     finally { setLoading(false) }
@@ -72,7 +100,7 @@ export default function AttendanceReports() {
     if (!empSelectedId) return alert("Please select an employee")
     setLoading(true); setError('')
     try {
-      const data = await getEmployeeReport(empSelectedId, empStartDate, empEndDate)
+      const data = await getEmployeeReport(empSelectedId, Number(companyId), empStartDate, empEndDate)
       setEmpData(data || [])
     } catch (err) { setError(err.message) } 
     finally { setLoading(false) }
@@ -83,7 +111,6 @@ export default function AttendanceReports() {
     return !q || (r.employee_name || '').toLowerCase().includes(q) || (r.employee_code || '').toLowerCase().includes(q)
   })
 
-  // UPDATED: Status classes for new logic
   const getStatusClasses = (status) => {
     switch (status) {
       case 'PRESENT': return 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400'
@@ -100,8 +127,32 @@ export default function AttendanceReports() {
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
   }
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to view attendance reports.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {/* Header with Company Badge */}
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+          <CalendarDays className="w-5 h-5 text-primary-500" />
+          Attendance Reports
+        </h2>
+        {/* ─── COMPANY BADGE ─── */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+          <Store className="w-3.5 h-3.5 text-primary-500" />
+          <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
         {TABS.map(tab => (
@@ -211,7 +262,7 @@ export default function AttendanceReports() {
             </div>
           )}
 
-          {/* MONTH WISE REPORT (UPDATED) */}
+          {/* MONTH WISE REPORT */}
           {activeTab === 'MONTH' && (
             <div className="card overflow-hidden">
               <div className="overflow-x-auto">
@@ -249,7 +300,7 @@ export default function AttendanceReports() {
             </div>
           )}
 
-          {/* EMPLOYEE WISE REPORT (Date by Date) */}
+          {/* EMPLOYEE WISE REPORT */}
           {activeTab === 'EMPLOYEE' && (
             <div className="card overflow-hidden">
               <div className="overflow-x-auto">

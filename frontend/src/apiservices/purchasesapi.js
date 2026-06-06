@@ -1,8 +1,15 @@
 const API_BASE = 'http://127.0.0.1:8000'
 
-export const getPurchases = async () => {
+export const getPurchases = async (companyId = null) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/purchases/`, {
+  
+  // ─── ADDED COMPANY_ID QUERY PARAM ───
+  let url = `${API_BASE}/purchases/`
+  if (companyId) {
+    url += `?company_id=${companyId}`
+  }
+
+  const res = await fetch(url, {
     method: 'GET',
     headers: { 'accept': 'application/json', 'Authorization': `Bearer ${token}` }
   })

@@ -1,3 +1,5 @@
+# expenses/service.py
+
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
@@ -7,19 +9,20 @@ from .model import Expense, ExpenseCategory
 from .schema import ExpenseCreate, ExpenseUpdate, CategoryCreate
 
 DEFAULT_CATEGORIES = [
-    
+    # Add any defaults you want, e.g. "SALARY_PAYOUT", "RENT", "UTILITIES"
 ]
 
 # --- Expense Services ---
 def get_expenses(
     db: Session, 
+    company_id: int,  # ← ADDED
     skip: int = 0, 
     limit: int = 1000,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None
 ):
-    """Fetch expenses with optional date filtering"""
-    query = db.query(Expense)
+    """Fetch expenses filtered by company and optional date range"""
+    query = db.query(Expense).filter(Expense.company_id == company_id)  # ← ADDED FILTER
     
     if start_date:
         query = query.filter(Expense.expense_date >= start_date)
@@ -28,8 +31,8 @@ def get_expenses(
         
     return query.order_by(Expense.expense_date.desc()).offset(skip).limit(limit).all()
 
-def get_expense(db: Session, expense_id: int):
-    return db.query(Expense).filter(Expense.id == expense_id).first()
+def get_expense(db: Session, expense_id: int, company_id: int):  # ← ADDED company_id
+    return db.query(Expense).filter(Expense.id == expense_id, Expense.company_id == company_id).first()
 
 def create_expense(db: Session, expense_data: ExpenseCreate):
     db_expense = Expense(**expense_data.model_dump())
@@ -42,12 +45,11 @@ def create_expense(db: Session, expense_data: ExpenseCreate):
         db.rollback()
         return None
 
-def update_expense(db: Session, expense_id: int, expense_data: ExpenseUpdate):
-    db_expense = get_expense(db, expense_id)
+def update_expense(db: Session, expense_id: int, expense_data: ExpenseUpdate, company_id: int):  # ← ADDED
+    db_expense = db.query(Expense).filter(Expense.id == expense_id, Expense.company_id == company_id).first()
     if not db_expense:
         return None
     
-    # Only update fields that were explicitly sent
     update_data = expense_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_expense, key, value)
@@ -60,8 +62,8 @@ def update_expense(db: Session, expense_id: int, expense_data: ExpenseUpdate):
         db.rollback()
         return None
 
-def delete_expense(db: Session, expense_id: int):
-    db_expense = get_expense(db, expense_id)
+def delete_expense(db: Session, expense_id: int, company_id: int):  # ← ADDED
+    db_expense = db.query(Expense).filter(Expense.id == expense_id, Expense.company_id == company_id).first()
     if not db_expense:
         return False
     
@@ -70,31 +72,34 @@ def delete_expense(db: Session, expense_id: int):
     return True
 
 # --- Category Services ---
-def get_categories(db: Session) -> List[ExpenseCategory]:
-    """Fetch all categories. Seed defaults if empty."""
-    categories = db.query(ExpenseCategory).all()
+def get_categories(db: Session, company_id: int) -> List[ExpenseCategory]:  # ← ADDED
+    """Fetch categories for a company. Seed defaults if empty."""
+    categories = db.query(ExpenseCategory).filter(ExpenseCategory.company_id == company_id).all()
     
-    # Seed defaults if table is completely empty
     if not categories:
         try:
             for cat_name in DEFAULT_CATEGORIES:
-                db.add(ExpenseCategory(name=cat_name, is_default=True))
+                db.add(ExpenseCategory(name=cat_name, is_default=True, company_id=company_id))
             db.commit()
-            # Re-query to return the seeded list
-            return db.query(ExpenseCategory).all()
+            return db.query(ExpenseCategory).filter(ExpenseCategory.company_id == company_id).all()
         except IntegrityError:
             db.rollback()
-            # If seeding fails (e.g. partial data), just return what we have
-            return db.query(ExpenseCategory).all()
+            return db.query(ExpenseCategory).filter(ExpenseCategory.company_id == company_id).all()
         
     return categories
 
 def create_category(db: Session, category_data: CategoryCreate) -> ExpenseCategory:
-    """Create a new category."""
-    # Normalize name
     clean_name = category_data.name.strip().upper().replace(" ", "_")
     
-    db_category = ExpenseCategory(name=clean_name, is_default=False)
+    # Check if category already exists for this company
+    existing = db.query(ExpenseCategory).filter(
+        ExpenseCategory.company_id == category_data.company_id,
+        ExpenseCategory.name == clean_name
+    ).first()
+    if existing:
+        raise ValueError("Category already exists for this company")
+    
+    db_category = ExpenseCategory(name=clean_name, is_default=False, company_id=category_data.company_id)
     try:
         db.add(db_category)
         db.commit()
@@ -104,10 +109,11 @@ def create_category(db: Session, category_data: CategoryCreate) -> ExpenseCatego
         db.rollback()
         raise ValueError("Category already exists")
 
-
-def delete_category(db: Session, category_id: int) -> bool:
-    """Delete a category."""
-    db_category = db.query(ExpenseCategory).filter(ExpenseCategory.id == category_id).first()
+def delete_category(db: Session, category_id: int, company_id: int) -> bool:  # ← ADDED
+    db_category = db.query(ExpenseCategory).filter(
+        ExpenseCategory.id == category_id,
+        ExpenseCategory.company_id == company_id
+    ).first()
     if not db_category:
         return False
     
@@ -116,7 +122,5 @@ def delete_category(db: Session, category_id: int) -> bool:
         db.commit()
         return True
     except IntegrityError:
-        # This block runs if the category is referenced in the expenses table
         db.rollback()
-        # Raise a ValueError so the API can return a 400 error with a message
         raise ValueError("Cannot delete this category because it is currently being used by existing expenses.")

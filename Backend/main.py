@@ -14,16 +14,13 @@ from stock_transfer.router import router as stock_transfer_router
 from employee.router import router as employee_router
 from sales_counter.router import router as sales_counter_router
 from sales_godown.router import router as sales_godown_router
-from expenses.router import  expense_router , category_router
+from expenses.router import expense_router, category_router
 from employee_attendance.router import router as attendance_router
+from dashboard.router import router as dashboard_router
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-app.mount(
-    "/assets",
-    StaticFiles(directory="../frontend/dist/assets"),
-    name="assets"
-)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,30 +30,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# routers
 app.include_router(auth_router)
 app.include_router(company_router)
 app.include_router(inventory_router)
 app.include_router(supplier_router)
 app.include_router(purchases_router)
 app.include_router(stock_transfer_router)
-
 app.include_router(employee_router)
 app.include_router(sales_counter_router)
-app.include_router(sales_godown_router) 
+app.include_router(sales_godown_router)
 app.include_router(expense_router)
 app.include_router(category_router)
 app.include_router(attendance_router)
-# @app.get("/")
-# def root():
-#     return {
-#         "message": "Liquor Billing API Running"
-#     }
+app.include_router(dashboard_router)
+app.mount(
+    "/assets",
+    StaticFiles(directory="../frontend/dist/assets"),
+    name="assets"
+)
 
 @app.get("/")
-async def serve_frontend():
+async def root():
     return FileResponse("../frontend/dist/index.html")
 
-
-@app.get("/{full_path:path}")
-async def react_router(full_path: str):
+@app.get("/{path:path}")
+async def spa(path: str):
     return FileResponse("../frontend/dist/index.html")

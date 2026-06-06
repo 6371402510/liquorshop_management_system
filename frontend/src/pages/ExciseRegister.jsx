@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   Loader as Loader2, Filter, RotateCcw, FileDown, Package, AlertCircle,
   ArrowUpDown, ArrowUp, ArrowDown, Landmark, Calculator, FileCheck,
-  Search, ChevronLeft, ChevronRight
+  Search, ChevronLeft, ChevronRight, Store
 } from 'lucide-react'
 import clsx from 'clsx'
 import { format } from 'date-fns'
@@ -29,6 +29,10 @@ function calculateLPLiters(bottles, bottleSizeStr) {
 }
 
 export default function ExciseReport() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   // ─── Data State ───
   const [products, setProducts] = useState([])
   const [purchases, setPurchases] = useState([])
@@ -54,19 +58,47 @@ export default function ExciseReport() {
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 50
 
-  // ─── 1. Initial Data Fetch ───
+  // ─── Listen for company changes ───
   useEffect(() => {
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
+
+  // ─── 1. Initial Data Fetch (company-scoped) ───
+  useEffect(() => {
+    if (!companyId) {
+      setProducts([])
+      setPurchases([])
+      setTransfers([])
+      setPurchaseQtyMap({})
+      setTransferQtyMap({})
+      setLoading(false)
+      return
+    }
     fetchInitialData()
-  }, [])
+  }, [companyId])
 
   const fetchInitialData = async () => {
     setLoading(true)
     setError('')
+    setPurchaseQtyMap({})
+    setTransferQtyMap({})
     try {
       const [productData, purchaseData, transferData] = await Promise.all([
-        getProducts(),
-        getPurchases(),
-        getStockTransfers()
+        getProducts(Number(companyId)),
+        getPurchases(Number(companyId)),
+        getStockTransfers(Number(companyId))
       ])
       setProducts(productData || [])
       setPurchases(purchaseData || [])
@@ -80,10 +112,11 @@ export default function ExciseReport() {
 
   // ─── 2. Fetch Items & Calculate Maps when Date Range Changes ───
   useEffect(() => {
+    if (!companyId) return
     if (purchases.length === 0 && transfers.length === 0) return
-    
+
     calculateAggregatedQuantities()
-  }, [filterDateFrom, filterDateTo, purchases, transfers])
+  }, [filterDateFrom, filterDateTo, purchases, transfers, companyId])
 
   const calculateAggregatedQuantities = async () => {
     setCalculating(true)
@@ -100,10 +133,14 @@ export default function ExciseReport() {
         return tDate >= filterDateFrom && tDate <= filterDateTo
       })
 
-      // Fetch items in parallel
+      // Fetch items in parallel — pass companyId
       const [purchaseItemsArrays, transferItemsArrays] = await Promise.all([
-        Promise.all(filteredPurchases.map(p => getPurchaseItems(p.id).catch(() => []))),
-        Promise.all(filteredTransfers.map(t => getStockTransferItems(t.id).catch(() => [])))
+        Promise.all(filteredPurchases.map(p =>
+          getPurchaseItems(p.id, Number(companyId)).catch(() => [])
+        )),
+        Promise.all(filteredTransfers.map(t =>
+          getStockTransferItems(t.id, Number(companyId)).catch(() => [])
+        ))
       ])
 
       // Aggregate Purchase Qty by product_id
@@ -161,9 +198,8 @@ export default function ExciseReport() {
         const totalAvailable = opening + purchaseQty + transferIn
         const closing = Number(p.current_stock) || 0
         const breakage = Number(p.damage_stock) || 0
-        const transferOut = 0 // No transfer out model yet
-        
-        // Auto-calculate Sales to balance the equation
+        const transferOut = 0
+
         const salesQty = Math.max(0, totalAvailable - closing - breakage - transferOut)
 
         slNo++
@@ -222,7 +258,7 @@ export default function ExciseReport() {
   // ─── Export to Excel ───
   const handleExportExcel = () => {
     if (sortedData.length === 0) return alert('No data to export')
-    
+
     const exportData = sortedData.map(row => ({
       'Sl No': row.slNo,
       'Brand Name': row.brandName,
@@ -246,21 +282,39 @@ export default function ExciseReport() {
     ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Excise Movement')
-    XLSX.writeFile(wb, `Excise_Movement_${filterDateFrom}_to_${filterDateTo}.xlsx`)
+    XLSX.writeFile(wb, `Excise_Movement_${companyName}_${filterDateFrom}_to_${filterDateTo}.xlsx`)
+  }
+
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to view the excise stock movement report.</p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <Landmark className="w-5 h-5 text-indigo-500" />
-            Excise Stock Movement Report
-          </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Period: {filterDateFrom ? format(new Date(filterDateFrom), 'dd MMM yyyy') : '...'} to {filterDateTo ? format(new Date(filterDateTo), 'dd MMM yyyy') : '...'}
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <Landmark className="w-5 h-5 text-indigo-500" />
+              Excise Stock Movement Report
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Period: {filterDateFrom ? format(new Date(filterDateFrom), 'dd MMM yyyy') : '...'} to {filterDateTo ? format(new Date(filterDateTo), 'dd MMM yyyy') : '...'}
+            </p>
+          </div>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={() => setShowFilters(s => !s)} className={clsx("btn-secondary flex items-center gap-2 text-xs", showFilters && "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 text-indigo-700")}>
@@ -273,9 +327,9 @@ export default function ExciseReport() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800">
           <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
         </div>
       )}
 
@@ -316,6 +370,33 @@ export default function ExciseReport() {
             <div><label className="block text-[10px] font-medium text-gray-500 mb-1 uppercase">Category</label><select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="input-field text-xs"><option value="ALL">All</option>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div>
             <div><label className="block text-[10px] font-medium text-gray-500 mb-1 uppercase">Search Product</label><div className="relative"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" /><input type="text" placeholder="Name or Brand..." value={search} onChange={e => setSearch(e.target.value)} className="input-field text-xs pl-8" /></div></div>
           </div>
+
+          {/* Quick Date Presets */}
+          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wide self-center mr-1">Quick:</span>
+            {[
+              { label: 'This Month', from: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+              { label: 'Last Month', from: format(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), 'yyyy-MM-dd'), to: format(new Date(new Date().getFullYear(), new Date().getMonth(), 0), 'yyyy-MM-dd') },
+              { label: 'This Quarter', from: format(new Date(new Date().getFullYear(), Math.floor(new Date().getMonth() / 3) * 3, 1), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+              { label: 'This Year', from: format(new Date(new Date().getFullYear(), 0, 1), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+              { label: 'Last Year', from: format(new Date(new Date().getFullYear() - 1, 0, 1), 'yyyy-MM-dd'), to: format(new Date(new Date().getFullYear() - 1, 11, 31), 'yyyy-MM-dd') },
+            ].map(preset => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => { setFilterDateFrom(preset.from); setFilterDateTo(preset.to) }}
+                className={clsx(
+                  "text-[10px] font-medium px-2.5 py-1 rounded-full border transition-colors",
+                  filterDateFrom === preset.from && filterDateTo === preset.to
+                    ? "bg-indigo-100 dark:bg-indigo-900/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
+                    : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
           <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-100 dark:border-blue-800">
             <p className="text-[10px] text-blue-600 dark:text-blue-400"><strong>Note:</strong> "Purchase Qty" and "Transfer In" are dynamically fetched based on the selected date period. Sales are auto-estimated to balance the stock equation.</p>
           </div>
@@ -397,9 +478,9 @@ export default function ExciseReport() {
         <div className="flex items-center justify-between px-2">
           <p className="text-xs text-gray-500">Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, sortedData.length)} of {sortedData.length}</p>
           <div className="flex items-center gap-1">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
             <span className="text-xs font-medium px-2">Page {currentPage} of {totalPages}</span>
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
           </div>
         </div>
       )}

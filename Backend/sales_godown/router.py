@@ -13,10 +13,11 @@ router = APIRouter(
 
 @router.get("/products", response_model=list[GodownProductResponse])
 def get_products(
+    company_id: int | None = None, # ─── ADDED
     search: str = Query("", alias="search"),
     db: Session = Depends(get_db)
 ):
-    return get_godown_products(db, search=search)
+    return get_godown_products(db, company_id=company_id, search=search)
 
 @router.post("/checkout", response_model=GodownSaleResponse)
 def process_checkout(
@@ -25,15 +26,19 @@ def process_checkout(
 ):
     return process_godown_checkout(db, checkout_data)
 
-# ─── ADDED: Godown Sales Report Endpoint ───
 @router.get("/sales", response_model=list[GodownSaleResponse])
 def get_godown_sales_report(
+    company_id: int | None = None, # ─── ADDED
     date_from: str = Query(None, alias="date_from"),
     date_to: str = Query(None, alias="date_to"),
     db: Session = Depends(get_db)
 ):
     """Fetch godown sales for reporting"""
     query = db.query(GodownSale)
+    
+    # ─── ADDED COMPANY FILTER ───
+    if company_id is not None:
+        query = query.filter(GodownSale.company_id == company_id)
     
     if date_from:
         query = query.filter(GodownSale.created_at >= date_from)

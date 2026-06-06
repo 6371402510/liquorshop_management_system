@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, Users, UserCheck, UserX, ChevronUp, ChevronDown, AlertCircle } from 'lucide-react'
+import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, Users, UserCheck, UserX, ChevronUp, ChevronDown, AlertCircle, Store } from 'lucide-react'
 import clsx from 'clsx'
 
-// Import API functions
 import { getEmployees, createEmployee, updateEmployee, deleteEmployee } from '../apiservices/employeeapi'
 
-// Dropdown Constants
 const DEPARTMENTS = ['SALES', 'WAREHOUSE', 'ACCOUNTS', 'MANAGEMENT', 'OTHER']
 const DESIGNATIONS = ['MANAGER', 'CASHIER', 'SALES_EXECUTIVE', 'STOCK_KEEPER', 'ACCOUNTANT', 'SUPERVISOR']
 const SYSTEM_ROLES = ['ADMIN', 'MANAGER', 'CASHIER', 'STAFF']
@@ -37,6 +35,10 @@ const emptyForm = {
 }
 
 export default function Employees() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -51,16 +53,38 @@ export default function Employees() {
   const [sortField, setSortField] = useState('first_name')
   const [sortDir, setSortDir] = useState('asc')
 
+  // ─── Listen for company changes ───
   useEffect(() => {
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
+
+  // ─── Fetch when company changes ───
+  useEffect(() => {
+    if (!companyId) {
+      setEmployees([])
+      setLoading(false)
+      return
+    }
     fetchEmployees()
-  }, [])
+  }, [companyId])
 
   const fetchEmployees = async () => {
     setLoading(true)
     setError('')
     try {
-      // Fetching all employees; client-side filtering is applied below
-      const data = await getEmployees()
+      const data = await getEmployees(Number(companyId))
       setEmployees(data || [])
     } catch (err) {
       setError(err.message || 'Failed to load employees')
@@ -119,12 +143,13 @@ export default function Employees() {
 
     const payload = {
       ...form,
+      company_id: Number(companyId),  // ← ADDED
       salary: Number(form.salary) || 0,
     }
 
     try {
       if (editingId) {
-        await updateEmployee(editingId, payload)
+        await updateEmployee(editingId, payload, Number(companyId))
       } else {
         await createEmployee(payload)
       }
@@ -140,7 +165,7 @@ export default function Employees() {
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this employee record?')) return
     try {
-      await deleteEmployee(id)
+      await deleteEmployee(id, Number(companyId))
       fetchEmployees()
     } catch (err) {
       alert(err.message || 'Failed to delete employee')
@@ -175,11 +200,22 @@ export default function Employees() {
   const activeCount = employees.filter(e => e.status === 'ACTIVE').length
   const inactiveCount = employees.filter(e => e.status !== 'ACTIVE').length
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to manage employees.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
-        <div className="flex flex-wrap gap-2 flex-1">
+        <div className="flex flex-wrap gap-2 flex-1 items-center">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input
@@ -198,6 +234,11 @@ export default function Employees() {
             <option value="ALL">All Departments</option>
             {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
           </select>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
         </div>
         <button onClick={openAdd} className="btn-primary">
           <Plus className="w-4 h-4" /> Add Employee

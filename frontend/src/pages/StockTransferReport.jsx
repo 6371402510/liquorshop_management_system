@@ -11,8 +11,6 @@ import * as XLSX from 'xlsx'
 
 // Import API functions
 import { getStockTransfers } from '../apiservices/stockTransferapi'
-// NOTE: You will need to add this endpoint to your backend and API service
-// e.g., export const getStockTransferItems = (id) => api.get(`/stock-transfers/${id}/items`).then(res => res.data)
 import { getStockTransferItems } from '../apiservices/stockTransferapi'
 
 // ─── Sort direction helper ───
@@ -25,6 +23,10 @@ function getSortIcon(sortDir) {
 const ITEMS_PER_PAGE = 25
 
 export default function StockTransferReport() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   // ─── Data State ───
   const [transfers, setTransfers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -42,18 +44,80 @@ export default function StockTransferReport() {
 
   // ─── UI State ───
   const [showFilters, setShowFilters] = useState(true)
-  const [activeTab, setActiveTab] = useState('detail') // detail, byProduct
+  const [activeTab, setActiveTab] = useState('detail')
   const [sortField, setSortField] = useState('transfer_date')
   const [sortDir, setSortDir] = useState('desc')
   const [currentPage, setCurrentPage] = useState(1)
 
+  // ─── Listen for company changes ───
   useEffect(() => {
-    fetchTransfers()
-  }, [])
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) {
+        setCompanyId(newId)
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+    // Also poll in case same-tab update doesn't fire storage event
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) {
+        setCompanyId(newId)
+      }
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
+
+  useEffect(() => {
+    if (companyId) {
+      fetchTransfers()
+    } else {
+      setTransfers([])
+      setLoading(false)
+    }
+  }, [companyId])
+
+  const fetchTransfers = async () => {
+    setLoading(true)
+    setError('')
+    // Reset expanded items when company changes
+    setExpandedItems({})
+    setExpandedId(null)
+    try {
+      const data = await getStockTransfers(Number(companyId))
+      setTransfers(data || [])
+    } catch (err) {
+      setError(err.message || 'Failed to load transfers')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadItems = async (id) => {
+    if (expandedId === id) {
+      setExpandedId(null)
+      return
+    }
+    try {
+      setLoadingItems(true)
+      if (!expandedItems[id]) {
+        const data = await getStockTransferItems(id, Number(companyId))
+        setExpandedItems(prev => ({ ...prev, [id]: data || [] }))
+      }
+      setExpandedId(id)
+    } catch (err) {
+      console.error('Failed to load transfer items')
+    } finally {
+      setLoadingItems(false)
+    }
+  }
 
   // ─── Fetch items when product filter is active ───
   useEffect(() => {
-    if (!filterProduct || transfers.length === 0) return
+    if (!companyId || !filterProduct || transfers.length === 0) return
 
     let cancelled = false
     const fetchMissingItems = async () => {
@@ -61,7 +125,7 @@ export default function StockTransferReport() {
         .filter(t => !expandedItems[t.id])
         .map(async t => {
           try {
-            const data = await getStockTransferItems(t.id)
+            const data = await getStockTransferItems(t.id, Number(companyId))
             return { id: t.id, data: data || [] }
           } catch {
             return null
@@ -82,63 +146,31 @@ export default function StockTransferReport() {
 
     fetchMissingItems()
     return () => { cancelled = true }
-  }, [filterProduct, transfers])
+  }, [filterProduct, transfers, companyId])
 
   // ─── Load all items for aggregation tab ───
   useEffect(() => {
-    if (activeTab === 'byProduct' && transfers.length > 0) {
-      const fetchAll = async () => {
-        const missing = transfers.filter(t => !expandedItems[t.id])
-        if (missing.length === 0) return
+    if (!companyId || activeTab !== 'byProduct' || transfers.length === 0) return
 
-        const promises = missing.map(async t => {
-          try {
-            const data = await getStockTransferItems(t.id)
-            return { id: t.id, data: data || [] }
-          } catch { return null }
-        })
-        const results = await Promise.all(promises)
-        setExpandedItems(prev => {
-          const next = { ...prev }
-          results.forEach(r => { if (r && r.data) next[r.id] = r.data })
-          return next
-        })
-      }
-      fetchAll()
-    }
-  }, [activeTab, transfers])
+    const fetchAll = async () => {
+      const missing = transfers.filter(t => !expandedItems[t.id])
+      if (missing.length === 0) return
 
-  const fetchTransfers = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const data = await getStockTransfers()
-      setTransfers(data || [])
-    } catch (err) {
-      setError(err.message || 'Failed to load transfers')
-    } finally {
-      setLoading(false)
+      const promises = missing.map(async t => {
+        try {
+          const data = await getStockTransferItems(t.id, Number(companyId))
+          return { id: t.id, data: data || [] }
+        } catch { return null }
+      })
+      const results = await Promise.all(promises)
+      setExpandedItems(prev => {
+        const next = { ...prev }
+        results.forEach(r => { if (r && r.data) next[r.id] = r.data })
+        return next
+      })
     }
-  }
-
-  const loadItems = async (id) => {
-    if (expandedId === id) {
-      setExpandedId(null)
-      return
-    }
-    try {
-      setLoadingItems(true)
-      if (!expandedItems[id]) {
-        const data = await getStockTransferItems(id)
-        setExpandedItems(prev => ({ ...prev, [id]: data || [] }))
-      }
-      setExpandedId(id)
-    } catch (err) {
-      console.error('Failed to load transfer items')
-    } finally {
-      setLoadingItems(false)
-    }
-  }
+    fetchAll()
+  }, [activeTab, transfers, companyId])
 
   // ─── Clear Filters ───
   const clearFilters = () => {
@@ -155,26 +187,18 @@ export default function StockTransferReport() {
   // ─── Filtering Logic ───
   const filteredTransfers = useMemo(() => {
     return transfers.filter(t => {
-      // Date filter
       const tDate = t.transfer_date ? format(new Date(t.transfer_date), 'yyyy-MM-dd') : ''
       if (filterDateFrom && tDate < filterDateFrom) return false
       if (filterDateTo && tDate > filterDateTo) return false
-
-      // Transfer No
       if (filterTransferNo && !(t.transfer_number || '').toLowerCase().includes(filterTransferNo.toLowerCase())) return false
-
-      // Status
       if (filterStatus !== 'ALL' && t.status !== filterStatus) return false
-
-      // Item-level filter
       if (filterProduct) {
         const tItems = expandedItems[t.id] || []
         if (tItems.length === 0) return false
-        return tItems.some(item => 
+        return tItems.some(item =>
           (item.product_name || '').toLowerCase().includes(filterProduct.toLowerCase())
         )
       }
-
       return true
     })
   }, [transfers, filterDateFrom, filterDateTo, filterTransferNo, filterProduct, filterStatus, expandedItems])
@@ -261,12 +285,11 @@ export default function StockTransferReport() {
       return
     }
 
-    // Ensure all items are loaded
     const missing = filteredTransfers.filter(t => !expandedItems[t.id])
     if (missing.length > 0) {
       const promises = missing.map(async t => {
         try {
-          const data = await getStockTransferItems(t.id)
+          const data = await getStockTransferItems(t.id, Number(companyId))
           return { id: t.id, data: data || [] }
         } catch { return null }
       })
@@ -280,7 +303,6 @@ export default function StockTransferReport() {
 
     const wb = XLSX.utils.book_new()
 
-    // Sheet 1: Transfer Summary
     const summaryData = filteredTransfers.map(t => ({
       'Transfer No.': t.transfer_number || '',
       'Date': t.transfer_date ? format(new Date(t.transfer_date), 'dd MMM yyyy hh:mm a') : '',
@@ -293,7 +315,6 @@ export default function StockTransferReport() {
     ws1['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 12 }]
     XLSX.utils.book_append_sheet(wb, ws1, 'Transfer Summary')
 
-    // Sheet 2: Item Details
     const itemData = []
     filteredTransfers.forEach(t => {
       const items = expandedItems[t.id] || []
@@ -319,7 +340,6 @@ export default function StockTransferReport() {
     ws2['!cols'] = [{ wch: 20 }, { wch: 14 }, { wch: 25 }, { wch: 10 }]
     XLSX.utils.book_append_sheet(wb, ws2, 'Item Details')
 
-    // Sheet 3: By Product
     const productData = byProduct.map(p => ({
       'Product': p.name,
       'Times Transferred': p.count,
@@ -328,22 +348,40 @@ export default function StockTransferReport() {
     const ws3 = XLSX.utils.json_to_sheet(productData)
     XLSX.utils.book_append_sheet(wb, ws3, 'By Product')
 
-    XLSX.writeFile(wb, `Stock_Transfer_Report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `Stock_Transfer_Report_${companyName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to view stock transfer reports.</p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <ArrowRightLeft className="w-5 h-5 text-amber-500" />
-            Stock Transfer Report
-          </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {filteredTransfers.length} transfer(s) found
-            {hasActiveFilters && ' (filtered)'}
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <ArrowRightLeft className="w-5 h-5 text-amber-500" />
+              Stock Transfer Report
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {filteredTransfers.length} transfer(s) found
+              {hasActiveFilters && ' (filtered)'}
+            </p>
+          </div>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
         </div>
         <div className="flex gap-2">
           <button

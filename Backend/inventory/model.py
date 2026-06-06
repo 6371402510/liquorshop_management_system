@@ -7,7 +7,7 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     item_id = Column(Integer, unique=True, index=True, nullable=True) 
-    
+    company_id = Column(Integer, nullable=True, index=True) 
     # Basic Info
     item_code = Column(String, unique=True, index=True, nullable=False)
     barcode = Column(String, index=True, nullable=True)

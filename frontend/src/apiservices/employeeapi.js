@@ -1,8 +1,11 @@
+// apiservices/employeeapi.js
+
 const API_BASE = 'http://127.0.0.1:8000'
 
-export const getEmployees = async (search = '', department = '') => {
+export const getEmployees = async (companyId, search = '', department = '') => {
   const token = localStorage.getItem('token')
   const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
   if (search) params.append('search', search)
   if (department && department !== 'ALL') params.append('department', department)
   
@@ -33,9 +36,12 @@ export const createEmployee = async (employeeData) => {
   return data
 }
 
-export const updateEmployee = async (id, employeeData) => {
+export const updateEmployee = async (id, employeeData, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/employees/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/employees/${id}?${params.toString()}`, {
     method: 'PUT',
     headers: {
       'accept': 'application/json',
@@ -49,9 +55,12 @@ export const updateEmployee = async (id, employeeData) => {
   return data
 }
 
-export const deleteEmployee = async (id) => {
+export const deleteEmployee = async (id, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/employees/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/employees/${id}?${params.toString()}`, {
     method: 'DELETE',
     headers: {
       'accept': 'application/json',

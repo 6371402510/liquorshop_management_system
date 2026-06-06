@@ -1,8 +1,11 @@
+// apiservices/attendanceapi.js
+
 const API_BASE = 'http://127.0.0.1:8000'
 
-export const getAttendance = async (date = '') => {
+export const getAttendance = async (companyId, date = '') => {
   const token = localStorage.getItem('token')
   const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
   if (date) params.append('date', date)
   
   const res = await fetch(`${API_BASE}/attendance/?${params.toString()}`, {
@@ -16,7 +19,6 @@ export const getAttendance = async (date = '') => {
   return res.json()
 }
 
-// MUST be named markAttendance to match the React import
 export const markAttendance = async (attendanceData) => {
   const token = localStorage.getItem('token')
   const res = await fetch(`${API_BASE}/attendance/`, {
@@ -33,9 +35,12 @@ export const markAttendance = async (attendanceData) => {
   return data
 }
 
-export const updateAttendance = async (id, attendanceData) => {
+export const updateAttendance = async (id, attendanceData, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/attendance/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/attendance/${id}?${params.toString()}`, {
     method: 'PUT',
     headers: {
       'accept': 'application/json',
@@ -49,9 +54,12 @@ export const updateAttendance = async (id, attendanceData) => {
   return data
 }
 
-export const deleteAttendance = async (id) => {
+export const deleteAttendance = async (id, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/attendance/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/attendance/${id}?${params.toString()}`, {
     method: 'DELETE',
     headers: {
       'accept': 'application/json',
@@ -62,13 +70,11 @@ export const deleteAttendance = async (id) => {
   return true
 }
 
-
-// Add this to attendanceapi.js
-
-export const getMonthlyReport = async (month = '') => {
+export const getMonthlyReport = async (month, companyId) => {
   const token = localStorage.getItem('token')
   const params = new URLSearchParams()
   if (month) params.append('month', month)
+  if (companyId) params.append('company_id', companyId)
   
   const res = await fetch(`${API_BASE}/attendance/report/monthly?${params.toString()}`, {
     method: 'GET',
@@ -81,11 +87,11 @@ export const getMonthlyReport = async (month = '') => {
   return res.json()
 }
 
-
-export const getEmployeeReport = async (employeeId, startDate = '', endDate = '') => {
+export const getEmployeeReport = async (employeeId, companyId, startDate = '', endDate = '') => {
   const token = localStorage.getItem('token')
   const params = new URLSearchParams()
   params.append('employee_id', employeeId)
+  if (companyId) params.append('company_id', companyId)
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
   

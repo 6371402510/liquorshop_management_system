@@ -1,8 +1,15 @@
 const API_BASE = 'http://127.0.0.1:8000'
 
-export const getStockTransfers = async () => {
+export const getStockTransfers = async (companyId = null) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/stock-transfers/`, {
+  
+  // ─── ADDED COMPANY_ID QUERY PARAM ───
+  let url = `${API_BASE}/stock-transfers/`
+  if (companyId) {
+    url += `?company_id=${companyId}`
+  }
+
+  const res = await fetch(url, {
     method: 'GET',
     headers: { 'accept': 'application/json', 'Authorization': `Bearer ${token}` }
   })
@@ -25,7 +32,6 @@ export const createStockTransfer = async (transferData) => {
   if (!res.ok) throw new Error(data.detail || 'Failed to save transfer')
   return data
 }
-
 
 export const getStockTransferItems = async (transferId) => {
   const token = localStorage.getItem('token')

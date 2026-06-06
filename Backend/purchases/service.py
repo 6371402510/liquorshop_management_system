@@ -1,14 +1,19 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List
-from datetime import date as date_type  # ─── ADDED
+from datetime import date as date_type 
 from .model import Purchase, PurchaseItem
 from .schema import PurchaseCreate
 from inventory.model import Product
 
 
-def get_purchases(db: Session, skip: int = 0, limit: int = 1000):
-    return db.query(Purchase).order_by(Purchase.purchase_date.desc()).offset(skip).limit(limit).all()
+def get_purchases(db: Session, company_id: int | None = None, skip: int = 0, limit: int = 1000):
+    # ─── ADDED COMPANY FILTER ───
+    query = db.query(Purchase)
+    if company_id is not None:
+        query = query.filter(Purchase.company_id == company_id)
+        
+    return query.order_by(Purchase.purchase_date.desc()).offset(skip).limit(limit).all()
 
 
 def get_purchase(db: Session, purchase_id: int):
@@ -20,18 +25,15 @@ def get_purchase_items(db: Session, purchase_id: int):
 
 
 def create_purchase(db: Session, purchase_data: PurchaseCreate):
-    # ─── Step 1: Create the Purchase header ───
     purchase_dict = purchase_data.model_dump(
         exclude={"items"}, by_alias=False
     )
 
-    # ─── ADDED: Set purchase_date = billing_date if not provided ───
     if not purchase_dict.get("purchase_date"):
         purchase_dict["purchase_date"] = (
             purchase_dict.get("billing_date") or date_type.today()
         )
 
-    # ─── ADDED: Set billing_date = today if not provided ───
     if not purchase_dict.get("billing_date"):
         purchase_dict["billing_date"] = date_type.today()
 
@@ -41,10 +43,12 @@ def create_purchase(db: Session, purchase_data: PurchaseCreate):
         db.add(db_purchase)
         db.flush()
 
-        # ─── Step 2: Create Purchase Items & Update Product Stock ───
         for item_data in purchase_data.items:
             item_dict = item_data.model_dump(by_alias=False)
             item_dict["purchase_id"] = db_purchase.id
+            
+            # ─── ADDED: Inherit company_id from purchase ───
+            item_dict["company_id"] = db_purchase.company_id
 
             db_item = PurchaseItem(**item_dict)
             db.add(db_item)

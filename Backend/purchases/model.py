@@ -7,16 +7,15 @@ class Purchase(Base):
     __tablename__ = "purchases"
 
     id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, nullable=True, index=True) # ─── ADDED
+    
     invoice_number = Column(String, unique=True, index=True, nullable=False)
     supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
     supplier_name = Column(String, nullable=True)
 
-    # ─── CHANGED: DateTime → Date (date only, no time) ───
     purchase_date = Column(Date, nullable=False)
-
-    # ─── ADDED: Separate dates from frontend ───
-    invoice_date = Column(Date, nullable=True)       # Manual entry from invoice
-    billing_date = Column(Date, nullable=False)      # Auto today's date
+    invoice_date = Column(Date, nullable=True)       
+    billing_date = Column(Date, nullable=False)      
 
     subtotal = Column(Float, default=0.0)
     vat_amount = Column(Float, default=0.0)
@@ -25,13 +24,12 @@ class Purchase(Base):
     tcs_amount = Column(Float, default=0.0)
     total_amount = Column(Float, default=0.0)
 
-    notes = Column(Text, nullable=True)              # Transport Pass No.
-    vehicle_number = Column(String, nullable=True)   # ─── ADDED
-
+    notes = Column(Text, nullable=True)              
+    vehicle_number = Column(String, nullable=True)   
     status = Column(String, default="RECEIVED")
 
-    created_at = Column(Date, server_default=func.current_date())  # ─── CHANGED
-    updated_at = Column(Date, onupdate=func.current_date())        # ─── CHANGED
+    created_at = Column(Date, server_default=func.current_date())
+    updated_at = Column(Date, onupdate=func.current_date())
 
 
 class PurchaseItem(Base):
@@ -39,7 +37,8 @@ class PurchaseItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     purchase_id = Column(Integer, ForeignKey("purchases.id"), nullable=False)
-
+    company_id = Column(Integer, nullable=True, index=True) # ─── ADDED
+    
     product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
 
     product_name = Column(String, nullable=False)

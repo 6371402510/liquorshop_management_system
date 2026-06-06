@@ -11,7 +11,7 @@ from .service import (
     update_product, 
     soft_delete_product
 )
-from .model import Product # <--- FIX: Import the Product model here
+from .model import Product
 
 router = APIRouter(
     prefix="/products",
@@ -41,9 +41,19 @@ def search_products(q: str, db: Session = Depends(get_db)):
 # =========================================================
 
 @router.get("/", response_model=List[ProductResponse])
-def list_products(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):
-    """Get all active products"""
-    products = get_products(db, skip=skip, limit=limit)
+def list_products(
+    company_id: int | None = None,   # <--- FIX: Use int | None instead of Optional[int]
+    skip: int = 0, 
+    limit: int = 1000, 
+    db: Session = Depends(get_db)
+):
+    """Get all active products, optionally filtered by company_id"""
+    query = db.query(Product).filter(Product.is_active == True)
+    
+    if company_id is not None:
+        query = query.filter(Product.company_id == company_id)
+    
+    products = query.order_by(Product.name).offset(skip).limit(limit).all()
     return products
 
 @router.get("/{product_id}", response_model=ProductResponse)

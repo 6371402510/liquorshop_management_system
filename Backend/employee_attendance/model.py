@@ -6,6 +6,7 @@ class Attendance(Base):
     __tablename__ = "attendance"
 
     id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     date = Column(String, nullable=False) # Format: YYYY-MM-DD
     status = Column(String, default="PRESENT") # PRESENT, ABSENT, HALF_DAY, ON_LEAVE, HOLIDAY

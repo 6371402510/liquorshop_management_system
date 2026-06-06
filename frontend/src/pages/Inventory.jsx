@@ -36,11 +36,11 @@ const SIZE_TRADITIONAL_MAP = {
   '90ml':   { traditionalName: 'Peg / Miniature', bottlesPerCase: 96 },
   '180ml':  { traditionalName: 'Nip / Quarter',   bottlesPerCase: 48 },
   '250ml':  { traditionalName: 'Quarter Plus',    bottlesPerCase: 36 },
-  '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 36 },
+  '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 24 },
   '300ml':  { traditionalName: 'Half Plus',       bottlesPerCase: 30 },
   '330ml':  { traditionalName: 'Small / Pony',    bottlesPerCase: 30 },
   '375ml':  { traditionalName: 'Pint / Half',     bottlesPerCase: 24 },
-  '500ml':  { traditionalName: 'Medium',          bottlesPerCase: 18 },
+  '500ml':  { traditionalName: 'Medium',          bottlesPerCase: 24 },
   '650ml':  { traditionalName: 'Large Beer',      bottlesPerCase: 12 },
   '750ml':  { traditionalName: 'Quart / Bottle',  bottlesPerCase: 12 },
   '1000ml': { traditionalName: 'Liter',           bottlesPerCase: 9 },
@@ -107,11 +107,8 @@ function classifyProduct(p) {
 
   if (stock <= 0) return 'out_of_stock'
   if (stock <= reorder) return 'low_stock'
-  // Dead stock: overstocked beyond maximum_stock, or more than 3x reorder level
   if (maxStock > 0 ? stock > maxStock : stock > reorder * 3) return 'dead_stock'
-  // Slow moving: stock is above 2x reorder level but within limits
   if (stock > reorder * 2) return 'slow_moving'
-  // Fast moving: stock between reorder and 2x reorder (depletes quickly)
   return 'fast_moving'
 }
 
@@ -136,6 +133,30 @@ export default function Inventory() {
 
   const fileInputRef = useRef(null)
 
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
+  // Listen for localStorage changes (if user switches company in another tab/sidebar)
+  useEffect(() => {
+    const syncCompanyId = () => {
+      const newId = localStorage.getItem('selectedCompanyId')
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', syncCompanyId)
+    return () => window.removeEventListener('storage', syncCompanyId)
+  }, [companyId])
+
+  // Re-fetch products when companyId changes
+  useEffect(() => {
+    if (companyId) {
+      fetchProducts()
+    } else {
+      setProducts([])
+      setLoading(false)
+    }
+  }, [companyId])
+
   const getVolumeStandard = () => {
     const sizeInMl = parseInt(form.bottle_size) || 0
     const unit = form.unit.toUpperCase()
@@ -152,13 +173,12 @@ export default function Inventory() {
     }
   }
 
-  useEffect(() => { fetchProducts() }, [])
-
   const fetchProducts = async () => {
     setLoading(true)
     setError('')
     try {
-      const data = await getProducts()
+      // ─── PASS COMPANY ID TO API ───
+      const data = await getProducts(Number(companyId))
       setProducts(data)
     } catch (err) {
       setError(err.message || 'Failed to load products')
@@ -211,7 +231,6 @@ export default function Inventory() {
     })
   }
 
-  // Auto-calculate current_stock from godown + counter
   const handleGodownStockChange = (val) => {
     const godown = Number(val) || 0
     const counter = Number(form.counter_stock) || 0
@@ -310,7 +329,6 @@ export default function Inventory() {
     XLSX.writeFile(wb, 'Product_Import_Template.xlsx')
   }
 
-  // ─── EXPORT CURRENT TABLE DATA TO EXCEL ───
   const handleExportExcel = () => {
     if (sorted.length === 0) {
       alert('No data to export')
@@ -400,7 +418,6 @@ export default function Inventory() {
         if (!validSubCategories.includes(mappedForm.sub_category)) {
           mappedForm.sub_category = validSubCategories[0]
         }
-        // Auto-calculate current_stock from godown + counter
         const gs = Number(mappedForm.godown_stock) || 0
         const cs = Number(mappedForm.counter_stock) || 0
         if (gs > 0 || cs > 0) {
@@ -425,6 +442,7 @@ export default function Inventory() {
 
     const payload = {
       ...form,
+      company_id: Number(companyId), // ─── INJECT COMPANY ID ───
       purchase_rate: Number(form.purchase_rate) || 0, landing_cost: Number(form.landing_cost) || 0,
       mrp: Number(form.mrp) || 0, sale_price: Number(form.sale_price) || 0,
       discount_percent: Number(form.discount_percent) || 0, VAT_rate: Number(form.VAT_rate) || 0,
@@ -469,7 +487,6 @@ export default function Inventory() {
     else { setSortField(field); setSortDir('asc') }
   }
 
-  // ─── Computed Stock Classifications ───
   const stockCounts = products.reduce((acc, p) => {
     const cls = classifyProduct(p)
     acc[cls] = (acc[cls] || 0) + 1
@@ -517,13 +534,34 @@ export default function Inventory() {
   const currentSizes = BOTTLE_SIZES_BY_TYPE[form.product_type] || DEFAULT_SIZES
   const currentSubCategories = getSubCategories(form.category)
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <div className="w-16 h-16 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+          <AlertTriangle className="w-8 h-8 text-amber-500" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">
+          Please select a company from the Companies page to view and manage its inventory.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
 
       {/* ─── Toolbar ─── */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
-        <div className="flex flex-wrap gap-2 flex-1">
+        <div className="flex flex-wrap gap-2 flex-1 items-center">
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input type="text" placeholder="Search name, brand, code, barcode..." value={search} onChange={e => setSearch(e.target.value)} className="input-field pl-8 w-64" />
@@ -540,7 +578,6 @@ export default function Inventory() {
           <button type="button" onClick={() => fileInputRef.current.click()} className="btn-secondary">
             <Upload className="w-4 h-4" /> Import
           </button>
-          {/* ─── EXPORT BUTTON ─── */}
           <button type="button" onClick={handleExportExcel} className="btn-secondary bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50">
             <FileDown className="w-4 h-4" /> Export
           </button>
@@ -603,7 +640,6 @@ export default function Inventory() {
                     <span className="flex items-center gap-1">{label} <SortIcon field={field} /></span>
                   </th>
                 ))}
-                {/* <th className="table-header text-right">Actions</th> */}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
@@ -630,21 +666,18 @@ export default function Inventory() {
                     <td className="table-cell text-xs text-gray-500">{p.traditional_name || '—'}</td>
                     <td className="table-cell text-xs text-gray-500 font-mono">{p.bottles_per_case || '—'}</td>
                     <td className="table-cell font-medium">₹{p.sale_price || 0}</td>
-                    {/* Godown Stock */}
                     <td className="table-cell">
                       <div className="flex items-center gap-1.5">
                         <Warehouse className="w-3 h-3 text-blue-400 flex-shrink-0" />
                         <span className={clsx('font-semibold text-sm', godown > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400')}>{godown}</span>
                       </div>
                     </td>
-                    {/* Counter Stock */}
                     <td className="table-cell">
                       <div className="flex items-center gap-1.5">
                         <Store className="w-3 h-3 text-purple-400 flex-shrink-0" />
                         <span className={clsx('font-semibold text-sm', counter > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400')}>{counter}</span>
                       </div>
                     </td>
-                    {/* Total Stock */}
                     <td className="table-cell">
                       <span className={clsx('font-semibold', stock <= reorder ? 'text-red-500' : stock <= reorder * 2 ? 'text-amber-500' : 'text-emerald-500')}>{stock}</span>
                       {stock <= reorder && stock > 0 && <AlertTriangle className="w-3 h-3 text-amber-500 inline ml-1" />}
@@ -653,12 +686,6 @@ export default function Inventory() {
                     <td className="table-cell">
                       <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', p.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400')}>{p.status || 'ACTIVE'}</span>
                     </td>
-                    {/* <td className="table-cell">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </td> */}
                   </tr>
                 )
               })}
@@ -839,8 +866,6 @@ export default function Inventory() {
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Stock & Inventory</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
-
-                  {/* Godown & Counter Stock */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       <span className="inline-flex items-center gap-1"><Warehouse className="w-3 h-3 text-blue-500" /> Godown Stock</span>
@@ -867,8 +892,6 @@ export default function Inventory() {
                       placeholder="0"
                     />
                   </div>
-
-                  {/* Current Stock (auto-calculated) */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       Current Stock
@@ -882,7 +905,6 @@ export default function Inventory() {
                       className="input-field bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 font-semibold cursor-not-allowed border-emerald-200 dark:border-emerald-800"
                     />
                   </div>
-
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       Opening Stock

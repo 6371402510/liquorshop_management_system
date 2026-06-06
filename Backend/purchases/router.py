@@ -12,9 +12,14 @@ router = APIRouter(
 )
 
 @router.get("/", response_model=List[PurchaseResponse])
-def list_purchases(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Get all purchases"""
-    return get_purchases(db, skip=skip, limit=limit)
+def list_purchases(
+    company_id: int | None = None, # ─── ADDED
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db)
+):
+    """Get all purchases, optionally filtered by company_id"""
+    return get_purchases(db, company_id=company_id, skip=skip, limit=limit)
 
 @router.post("/", response_model=PurchaseResponse, status_code=status.HTTP_201_CREATED)
 def create_new_purchase(purchase_data: PurchaseCreate, db: Session = Depends(get_db)):

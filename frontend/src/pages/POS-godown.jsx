@@ -3,7 +3,7 @@ import {
   Search, Barcode, Plus, Minus, Trash2, ShoppingCart,
   Printer, CheckCircle, X, Loader2, CreditCard, Banknote,
   Smartphone, Send, Package, Tag, Hash, Calendar, Layers, Download,
-  AlertCircle, ChevronDown
+  AlertCircle, ChevronDown,Store
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format } from 'date-fns';
@@ -20,6 +20,8 @@ function generateScanId(productId) {
 }
 
 export default function POSGodown() {
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
   const [products, setProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
 
@@ -78,7 +80,7 @@ export default function POSGodown() {
   useEffect(() => { localStorage.setItem('godown_customerPhone', JSON.stringify(customerPhone)); }, [customerPhone]);
   useEffect(() => { localStorage.setItem('godown_discount', JSON.stringify(discount)); }, [discount]);
 
-  useEffect(() => { fetchProducts(); }, []);
+   useEffect(() => { if (companyId) fetchProducts(); }, [companyId]);
 
   // ─── NEW: Auto-Focus Logic ───
   useEffect(() => {
@@ -97,10 +99,11 @@ export default function POSGodown() {
     }
   }, [focusRequest]);
 
-  const fetchProducts = async (searchTerm = '') => {
+   const fetchProducts = async (searchTerm = '') => {
     setLoadingProducts(true);
     try {
-      const data = await getGodownProducts(searchTerm);
+      // ─── PASS COMPANY ID ───
+      const data = await getGodownProducts(companyId, searchTerm);
       setProducts(data || []);
       setFilteredProducts(data || []);
     } catch (err) {
@@ -395,7 +398,7 @@ const addToCart = useCallback((product) => {
   const remaining = Math.max(0, grandTotal - totalPaid);
   const isPaymentValid = Math.abs(remaining) < 0.1;
 
-  const handleCheckout = async () => {
+ const handleCheckout = async () => {
     if (!isPaymentValid) {
       alert(`Payment incomplete. Remaining: ₹${remaining.toFixed(2)}`);
       return;
@@ -428,12 +431,16 @@ const addToCart = useCallback((product) => {
 
     const payload = {
       invoice_number: generateInvoiceNumber(),
+      company_id: Number(companyId), // ─── INJECT COMPANY ID ───
       customer_name: customerName,
       customer_phone: customerPhone,
       total_amount: grandTotal,
       payment_mode: paymentMode,
       payment_details: paymentSplits,
-      items: Object.values(aggregated),
+      items: Object.values(aggregated).map(item => ({
+        ...item,
+        company_id: Number(companyId) // ─── INJECT COMPANY ID ───
+      })),
     };
 
     try {
@@ -506,11 +513,15 @@ const addToCart = useCallback((product) => {
 
     const payload = {
       invoice_number: generateInvoiceNumber(),
+      company_id: Number(companyId),
       customer_name: cName,
       customer_phone: cPhone === 'N/A' ? '' : cPhone,
       total_amount: totalAmount,
       payment_mode: printPaymentMode,
-      items: Object.values(aggregated),
+      items: Object.values(aggregated).map(item => ({
+        ...item,
+        company_id: Number(companyId) // ─── INJECT COMPANY ID ───
+      })),
     };
 
     try {
@@ -754,7 +765,15 @@ const addToCart = useCallback((product) => {
       </div>
     );
   }
-
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to use the Godown POS.</p>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50 dark:bg-gray-950 overflow-hidden relative">
 

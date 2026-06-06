@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
-import { Search, Save, Loader2, CalendarCheck, CalendarX, Clock, Calendar, AlertCircle, UserCheck, Briefcase } from 'lucide-react'
+import { Search, Save, Loader2, CalendarCheck, CalendarX, Clock, Calendar, AlertCircle, UserCheck, Briefcase, Store } from 'lucide-react'
 import clsx from 'clsx'
 
-// Import API functions
 import { getAttendance, markAttendance, updateAttendance } from '../apiservices/attendanceapi'
 import { getEmployees } from '../apiservices/employeeapi'
 
-// UPDATED: Removed ABSENT/HOLIDAY, Added PAID_LEAVE and UNPAID_LEAVE
 const ATTENDANCE_STATUSES = ['PRESENT', 'PAID_LEAVE', 'UNPAID_LEAVE', 'HALF_DAY']
 
 export default function EmployeeAttendance() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [employees, setEmployees] = useState([])
   const [existingRecords, setExistingRecords] = useState({})
   const [loading, setLoading] = useState(true)
@@ -21,17 +23,44 @@ export default function EmployeeAttendance() {
   
   const [sheetData, setSheetData] = useState({})
 
+  // ─── Listen for company changes ───
   useEffect(() => {
-    fetchEmployeesList()
-  }, [])
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
 
+  // ─── Fetch employees when company changes ───
   useEffect(() => {
+    if (!companyId) {
+      setEmployees([])
+      setSheetData({})
+      setExistingRecords({})
+      setLoading(false)
+      return
+    }
+    fetchEmployeesList()
+  }, [companyId])
+
+  // ─── Fetch attendance when date or employees change ───
+  useEffect(() => {
+    if (!companyId || employees.length === 0) return
     fetchAttendanceRecords()
   }, [selectedDate, employees])
 
   const fetchEmployeesList = async () => {
     try {
-      const data = await getEmployees()
+      const data = await getEmployees(Number(companyId))
       setEmployees(data || [])
     } catch (err) {
       setError(err.message || 'Could not load employees')
@@ -43,7 +72,7 @@ export default function EmployeeAttendance() {
     setLoading(true)
     setError('')
     try {
-      const data = await getAttendance(selectedDate)
+      const data = await getAttendance(Number(companyId), selectedDate)
       const recordsMap = {}
       data.forEach(r => { recordsMap[r.employee_id] = r })
       setExistingRecords(recordsMap)
@@ -85,6 +114,7 @@ export default function EmployeeAttendance() {
     }
 
     const payload = {
+      company_id: Number(companyId),  // ← ADDED
       employee_id: employeeId,
       date: selectedDate,
       status: rowData.status,
@@ -96,7 +126,7 @@ export default function EmployeeAttendance() {
     try {
       const existingRecord = existingRecords[employeeId]
       if (existingRecord) {
-        await updateAttendance(existingRecord.id, payload)
+        await updateAttendance(existingRecord.id, payload, Number(companyId))
       } else {
         await markAttendance(payload)
       }
@@ -113,13 +143,10 @@ export default function EmployeeAttendance() {
     return !q || e.first_name.toLowerCase().includes(q) || e.last_name.toLowerCase().includes(q) || (e.employee_code || '').toLowerCase().includes(q)
   })
 
-  // UPDATED: Summary counts based on new logic
   const presentCount = Object.values(sheetData).filter(r => r.status === 'PRESENT').length
   const paidLeaveCount = Object.values(sheetData).filter(r => r.status === 'PAID_LEAVE').length
   const unpaidLeaveCount = Object.values(sheetData).filter(r => r.status === 'UNPAID_LEAVE').length
   const halfDayCount = Object.values(sheetData).filter(r => r.status === 'HALF_DAY').length
-  
-  // Working Days = Present + Paid Leave + (Half Day / 2)
   const totalWorkingDays = presentCount + paidLeaveCount + (halfDayCount / 2)
 
   const getStatusClasses = (status) => {
@@ -132,11 +159,22 @@ export default function EmployeeAttendance() {
     }
   }
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to manage attendance.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
-        <div className="flex flex-wrap gap-2 flex-1">
+        <div className="flex flex-wrap gap-2 flex-1 items-center">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input type="text" placeholder="Search employee..." value={search} onChange={e => setSearch(e.target.value)} className="input-field pl-8 w-64" />
@@ -144,6 +182,11 @@ export default function EmployeeAttendance() {
           <div className="relative">
             <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="input-field pl-8 w-48" />
+          </div>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
           </div>
         </div>
       </div>
@@ -170,8 +213,6 @@ export default function EmployeeAttendance() {
           <Clock className="w-4 h-4 text-amber-500" />
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{halfDayCount} Half Day</span>
         </div>
-        
-        {/* WORKING DAYS CARD */}
         <div className="card px-4 py-2.5 flex items-center gap-2 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
           <Briefcase className="w-4 h-4 text-primary-600 dark:text-primary-400" />
           <span className="text-sm font-bold text-primary-700 dark:text-primary-300">{totalWorkingDays} Working Days</span>

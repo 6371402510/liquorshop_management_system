@@ -1,14 +1,17 @@
+// apiservices/expensesapi.js
+
 const API_BASE = 'http://127.0.0.1:8000'
 
 // --- EXPENSE FUNCTIONS ---
 
-export const getExpenses = async (startDate, endDate) => {
+export const getExpenses = async (companyId, startDate, endDate) => {
   const token = localStorage.getItem('token')
-  let url = `${API_BASE}/expenses/?`
-  if (startDate) url += `start_date=${startDate}&`
-  if (endDate) url += `end_date=${endDate}&`
-  
-  const res = await fetch(url, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+  if (startDate) params.append('start_date', startDate)
+  if (endDate) params.append('end_date', endDate)
+
+  const res = await fetch(`${API_BASE}/expenses/?${params.toString()}`, {
     method: 'GET',
     headers: { 'accept': 'application/json', 'Authorization': `Bearer ${token}` }
   })
@@ -32,9 +35,12 @@ export const createExpense = async (payload) => {
   return data
 }
 
-export const updateExpense = async (id, payload) => {
+export const updateExpense = async (id, payload, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/expenses/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/expenses/${id}?${params.toString()}`, {
     method: 'PUT',
     headers: {
       'accept': 'application/json',
@@ -48,9 +54,12 @@ export const updateExpense = async (id, payload) => {
   return data
 }
 
-export const deleteExpense = async (id) => {
+export const deleteExpense = async (id, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/expenses/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/expenses/${id}?${params.toString()}`, {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${token}` }
   })
@@ -59,20 +68,20 @@ export const deleteExpense = async (id) => {
 
 // --- CATEGORY FUNCTIONS ---
 
-export const getCategories = async () => {
+export const getCategories = async (companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/categories/`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/categories/?${params.toString()}`, {
     method: 'GET',
-    headers: { 
-      'accept': 'application/json', 
-      'Authorization': `Bearer ${token}` 
-    }
+    headers: { 'accept': 'application/json', 'Authorization': `Bearer ${token}` }
   })
   if (!res.ok) throw new Error('Failed to fetch categories')
   return res.json()
 }
 
-export const createCategory = async (name) => {
+export const createCategory = async (name, companyId) => {
   const token = localStorage.getItem('token')
   const res = await fetch(`${API_BASE}/categories/`, {
     method: 'POST',
@@ -81,17 +90,19 @@ export const createCategory = async (name) => {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, company_id: Number(companyId) })
   })
-  
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || 'Failed to add category')
   return data
 }
 
-export const deleteCategory = async (id) => {
+export const deleteCategory = async (id, companyId) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/categories/${id}`, {
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const res = await fetch(`${API_BASE}/categories/${id}?${params.toString()}`, {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${token}` }
   })

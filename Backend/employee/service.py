@@ -1,12 +1,13 @@
+# employees/service.py
+
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from .model import Employee
 from .schema import EmployeeCreate, EmployeeUpdate
 
-def get_employees(db: Session, search: str = None, department: str = None):
-    query = db.query(Employee)
+def get_employees(db: Session, company_id: int, search: str = None, department: str = None):  # ← ADDED company_id
+    query = db.query(Employee).filter(Employee.company_id == company_id)  # ← ADDED FILTER
     
-    # Apply search filter
     if search:
         search_term = f"%{search}%"
         query = query.filter(
@@ -18,14 +19,13 @@ def get_employees(db: Session, search: str = None, department: str = None):
             )
         )
     
-    # Apply department filter
     if department and department != "ALL":
         query = query.filter(Employee.department == department.upper())
         
     return query.order_by(Employee.first_name).all()
 
-def get_employee(db: Session, employee_id: int):
-    return db.query(Employee).filter(Employee.id == employee_id).first()
+def get_employee(db: Session, employee_id: int, company_id: int):  # ← ADDED company_id
+    return db.query(Employee).filter(Employee.id == employee_id, Employee.company_id == company_id).first()
 
 def create_employee(db: Session, employee_data: EmployeeCreate):
     db_employee = Employee(**employee_data.model_dump())
@@ -34,8 +34,8 @@ def create_employee(db: Session, employee_data: EmployeeCreate):
     db.refresh(db_employee)
     return db_employee
 
-def update_employee(db: Session, employee_id: int, employee_data: EmployeeUpdate):
-    db_employee = get_employee(db, employee_id)
+def update_employee(db: Session, employee_id: int, employee_data: EmployeeUpdate, company_id: int):  # ← ADDED company_id
+    db_employee = db.query(Employee).filter(Employee.id == employee_id, Employee.company_id == company_id).first()
     if not db_employee:
         return None
     
@@ -47,8 +47,8 @@ def update_employee(db: Session, employee_id: int, employee_data: EmployeeUpdate
     db.refresh(db_employee)
     return db_employee
 
-def delete_employee(db: Session, employee_id: int):
-    db_employee = get_employee(db, employee_id)
+def delete_employee(db: Session, employee_id: int, company_id: int):  # ← ADDED company_id
+    db_employee = db.query(Employee).filter(Employee.id == employee_id, Employee.company_id == company_id).first()
     if not db_employee:
         return False
     

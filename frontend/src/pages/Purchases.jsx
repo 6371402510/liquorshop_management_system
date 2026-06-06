@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Plus, X, Loader as Loader2, Trash2, ChevronDown, ChevronUp, Save, Package, AlertCircle, Search, ScanBarcode, Filter, RotateCcw, FileDown, TriangleAlert, Warehouse, Store, CreditCard as Edit2 } from 'lucide-react'
 import { format } from 'date-fns'
@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 // Import API functions
 import { getPurchases, createPurchase, getPurchaseItems } from '../apiservices/purchasesapi'
 import { getSuppliers } from '../apiservices/supplierapi'
-import { searchProducts, createProduct } from '../apiservices/inventoryapi' 
+import { searchProducts, createProduct ,updateProduct} from '../apiservices/inventoryapi'
 
 // ─────────────────────────────────────────────────────────────
 // 1. INVENTORY CONSTANTS & HELPERS
@@ -43,11 +43,11 @@ const SIZE_TRADITIONAL_MAP = {
   '90ml':   { traditionalName: 'Peg / Miniature', bottlesPerCase: 96 },
   '180ml':  { traditionalName: 'Nip / Quarter',   bottlesPerCase: 48 },
   '250ml':  { traditionalName: 'Quarter Plus',    bottlesPerCase: 36 },
-  '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 36 },
+  '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 24 },
   '300ml':  { traditionalName: 'Half Plus',       bottlesPerCase: 30 },
   '330ml':  { traditionalName: 'Small / Pony',    bottlesPerCase: 30 },
   '375ml':  { traditionalName: 'Pint / Half',     bottlesPerCase: 24 },
-  '500ml':  { traditionalName: 'Medium',          bottlesPerCase: 18 },
+  '500ml':  { traditionalName: 'Medium',          bottlesPerCase: 24 },
   '650ml':  { traditionalName: 'Large Beer',      bottlesPerCase: 12 },
   '750ml':  { traditionalName: 'Quart / Bottle',  bottlesPerCase: 12 },
   '1000ml': { traditionalName: 'Liter',           bottlesPerCase: 9 },
@@ -83,9 +83,27 @@ const getTraditionalData = (bottleSize) => {
 const getSubCategories = (category) => {
   return SUB_CATEGORIES_BY_CATEGORY[category] || DEFAULT_SUB_CATEGORIES
 }
+// ─── Auto-calculate BL (Bulk Liters) and LPL (LP Liters) ───
+// In Odisha:
+//   IMFL / WINE / COUNTRY LIQUOR → LPL = 75% of BL
+//   BEER → LPL = 0 (not applicable)
+const calculateBLandLPL = (totalQty, bottleSize, productType) => {
+  const sizeInMl = parseInt(bottleSize) || 0
+  const bottles = Number(totalQty) || 0
+
+  if (bottles > 0 && sizeInMl > 0) {
+    const bl = (bottles * sizeInMl) / 1000
+    const lpl = productType === 'BEER' ? 0 : bl * 0.75  // ← CHANGED: 75% of BL
+    return {
+      qtyBulkLiters: parseFloat(bl.toFixed(3)),
+      qtyLPLiters: parseFloat(lpl.toFixed(3))
+    }
+  }
+  return { qtyBulkLiters: 0, qtyLPLiters: 0 }
+}
 
 // ─────────────────────────────────────────────────────────────
-// 2. EXTRACTED PRODUCT MODAL COMPONENT (Updated with Barcode)
+// 2. EXTRACTED PRODUCT MODAL COMPONENT
 // ─────────────────────────────────────────────────────────────
 
 const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
@@ -93,13 +111,12 @@ const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Initialize form when modal opens
   useEffect(() => {
     if (isOpen) {
       const defaultTradData = getTraditionalData(emptyProductForm.bottle_size)
       setForm({
         ...emptyProductForm,
-        item_code: `ITM${Date.now().toString().slice(-6)}`, // Simple generation
+        item_code: `ITM${Date.now().toString().slice(-6)}`,
         traditional_name: defaultTradData.traditionalName,
         bottles_per_case: String(defaultTradData.bottlesPerCase),
       })
@@ -149,8 +166,10 @@ const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
     setSaving(true)
     setError('')
 
+    const currentCompanyId = localStorage.getItem('selectedCompanyId')
     const payload = {
       ...form,
+      company_id: Number(currentCompanyId),
       purchase_rate: Number(form.purchase_rate) || 0, landing_cost: Number(form.landing_cost) || 0,
       mrp: Number(form.mrp) || 0, sale_price: Number(form.sale_price) || 0,
       discount_percent: Number(form.discount_percent) || 0, VAT_rate: Number(form.VAT_rate) || 0,
@@ -199,34 +218,21 @@ const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
         )}
 
         <form onSubmit={handleSave} className="p-6 space-y-8">
-          {/* 1. Basic Info */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Basic Item Information</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
-              
-              {/* Item Code */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Item Code *</label>
                 <input required value={form.item_code} onChange={e => setForm(f => ({ ...f, item_code: e.target.value }))} className="input-field font-mono" />
               </div>
-
-              {/* ADDED: Barcode */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Barcode</label>
-                <input 
-                  value={form.barcode} 
-                  onChange={e => setForm(f => ({ ...f, barcode: e.target.value }))} 
-                  className="input-field font-mono" 
-                  placeholder="Scan or enter..."
-                />
+                <input value={form.barcode} onChange={e => setForm(f => ({ ...f, barcode: e.target.value }))} className="input-field font-mono" placeholder="Scan or enter..." />
               </div>
-
-              {/* Product Name */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Product Name *</label>
                 <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" />
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Brand Name</label>
                 <input value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} className="input-field" />
@@ -266,7 +272,6 @@ const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
             </div>
           </div>
 
-          {/* 2. Pricing */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Pricing & Stock</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
@@ -314,10 +319,9 @@ const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
 // 3. ORIGINAL PURCHASES PAGE LOGIC
 // ─────────────────────────────────────────────────────────────
 
-// ─── Size → Bottles Per Case Fallback Map ───
 const SIZE_BOTTLES_MAP = {
-  '90ml': 96, '180ml': 48, '250ml': 36, '275ml': 36, '300ml': 30,
-  '330ml': 30, '375ml': 24, '500ml': 18, '650ml': 12, '750ml': 12,
+  '90ml': 96, '180ml': 48, '250ml': 36, '275ml': 24, '300ml': 30,
+  '330ml': 30, '375ml': 24, '500ml': 24, '650ml': 12, '750ml': 12,
   '1000ml': 9, '2000ml': 6,
 }
 
@@ -326,7 +330,6 @@ function generatePurchaseNumber() {
   return `PO-${d}-${Math.floor(1000 + Math.random() * 9000)}`
 }
 
-// ─── Helper: Normalize API response field names ───
 function normalizeItem(item) {
   return {
     id: item.id,
@@ -365,6 +368,7 @@ const EMPTY_ITEM = {
   purchaseRatePerUnit: 0,
   sellingRate: '',
   productId: null,
+  productType: 'IMFL',
   bottleSize: '',
   traditionalName: '',
   bottlesPerCase: 0,
@@ -378,15 +382,16 @@ const EMPTY_ITEM = {
 
 export default function Purchases() {
   const { user } = useAuth()
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [purchases, setPurchases] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState('')
 
-  // Product Modal State
   const [showProductModal, setShowProductModal] = useState(false)
 
-  // Form State
   const [suppliers, setSuppliers] = useState([])
   const [selectedSupplier, setSelectedSupplier] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -396,7 +401,6 @@ export default function Purchases() {
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
 
-  // Search State
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
@@ -405,7 +409,6 @@ export default function Purchases() {
   const dropdownRef = useRef(null)
   const searchInputRef = useRef(null)
 
-  // Purchase-level Tax State
   const [purchaseVat, setPurchaseVat] = useState(35)
   const [purchaseCess, setPurchaseCess] = useState(0)
   const [purchaseSpecial, setPurchaseSpecial] = useState(0)
@@ -416,23 +419,23 @@ export default function Purchases() {
   const [transportPass, setTransportPass] = useState('')
   const [vehicleNumber, setVehicleNumber] = useState('')
 
-  // Existing Purchase Details State
   const [expandedId, setExpandedId] = useState(null)
   const [expandedItems, setExpandedItems] = useState({})
 
-  // ─── Report Filter State ───
   const [filterProduct, setFilterProduct] = useState('')
   const [filterBrand, setFilterBrand] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterMrp, setFilterMrp] = useState('')
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
-  const [filterType, setFilterType] = useState('ALL') // ALL, PURCHASE, RETURN
+  const [filterType, setFilterType] = useState('ALL')
 
   useEffect(() => {
-    fetchPurchases()
-    fetchSuppliers()
-  }, [])
+    if (companyId) {
+      fetchPurchases()
+      fetchSuppliers()
+    }
+  }, [companyId])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -444,7 +447,6 @@ export default function Purchases() {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  // ─── Fetch items for all purchases if item-level filters are active ───
   useEffect(() => {
     const hasItemFilter = filterProduct || filterBrand || filterCategory || filterMrp
     if (!hasItemFilter || purchases.length === 0) return
@@ -456,50 +458,40 @@ export default function Purchases() {
           try {
             const data = await getPurchaseItems(p.id)
             return { id: p.id, data: (data || []).map(normalizeItem) }
-          } catch {
-            return null
-          }
+          } catch { return null }
         })
 
       const results = await Promise.all(promises)
       setExpandedItems(prev => {
         const next = { ...prev }
-        results.forEach(r => {
-          if (r && r.data) next[r.id] = r.data
-        })
+        results.forEach(r => { if (r && r.data) next[r.id] = r.data })
         if (JSON.stringify(next) !== JSON.stringify(prev)) return next
         return prev
       })
     }
-
     fetchMissingItems()
   }, [filterProduct, filterBrand, filterCategory, filterMrp, purchases])
 
   const fetchPurchases = async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
-      const data = await getPurchases()
+      const data = await getPurchases(Number(companyId))
       setPurchases(data || [])
-    } catch (err) {
-      setError(err.message || 'Failed to load purchases')
-    } finally {
-      setLoading(false)
-    }
+    } catch (err) { setError(err.message || 'Failed to load purchases') }
+    finally { setLoading(false) }
   }
 
   const fetchSuppliers = async () => {
     try {
       const data = await getSuppliers()
       setSuppliers(data || [])
-    } catch (err) {
-      console.error('Failed to load suppliers for dropdown')
-    }
+    } catch (err) { console.error('Failed to load suppliers') }
   }
 
   const handleItemChange = (key, val) => {
     setCurrentItem(prev => {
       const updated = { ...prev, [key]: val }
+
       if (key === 'qtyCases') {
         const cases = Number(val) || 0
         const bpc = Number(prev.bottlesPerCase) || 0
@@ -519,6 +511,16 @@ export default function Purchases() {
           updated.openingStock = cases * bpc
         }
       }
+
+      // ─── AUTO-CALCULATE BL AND LPL ───
+      const latestQty = Number(updated.totalQty ?? prev.totalQty) || 0
+      const latestSize = updated.bottleSize ?? prev.bottleSize
+      const latestType = updated.productType ?? prev.productType
+
+      const { qtyBulkLiters, qtyLPLiters } = calculateBLandLPL(latestQty, latestSize, latestType)
+      updated.qtyBulkLiters = qtyBulkLiters
+      updated.qtyLPLiters = qtyLPLiters
+
       return updated
     })
   }
@@ -531,11 +533,15 @@ export default function Purchases() {
 
   const calcRatePerUnit = (item) => {
     const ratePerCase = Number(item.purchaseRatePerCase) || 0
+    const bpc = Number(item.bottlesPerCase) || 0
+
+    // ─── PRIORITY 1: If we have rate/case and bottles/case, just divide ───
+    if (ratePerCase > 0 && bpc > 0) return ratePerCase / bpc
+
+    // ─── PRIORITY 2: Fallback — from total qty and cases ───
     const cases = Number(item.qtyCases) || 0
     const totalQty = Number(item.totalQty) || 0
-    if (totalQty > 0 && cases > 0) {
-      return (ratePerCase * cases) / totalQty
-    }
+    if (totalQty > 0 && cases > 0) return (ratePerCase * cases) / totalQty
     return 0
   }
 
@@ -555,14 +561,10 @@ export default function Purchases() {
           setSearchResults(results)
           setShowDropdown(results.length > 0)
         }
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setIsSearching(false)
-      }
+      } catch (err) { console.error(err) }
+      finally { setIsSearching(false) }
     } else {
-      setSearchResults([])
-      setShowDropdown(false)
+      setSearchResults([]); setShowDropdown(false)
     }
   }
 
@@ -579,9 +581,15 @@ export default function Purchases() {
     }
   }
 
-  const selectProduct = (product) => {
+ const selectProduct = (product) => {
     const bpc = product.bottles_per_case || SIZE_BOTTLES_MAP[product.bottle_size] || 0
-    setCurrentItem({
+    const productType = product.product_type || 'IMFL'
+
+    // ─── NEW: AUTO-CALCULATE PURCHASE RATE PER CASE FROM INVENTORY ───
+    const purchaseRatePerUnit = Number(product.purchase_rate) || 0
+    const autoRatePerCase = purchaseRatePerUnit > 0 && bpc > 0 ? purchaseRatePerUnit * bpc : ''
+
+    const newItem = {
       ...EMPTY_ITEM,
       name: product.name || '',
       brand: product.brand || '',
@@ -591,9 +599,17 @@ export default function Purchases() {
       traditionalName: product.traditional_name || '',
       bottlesPerCase: bpc,
       productId: product.id || null,
+      productType,
       mrp: product.mrp || '',
       sellingRate: product.sale_price || '',
-    })
+      purchaseRatePerCase: autoRatePerCase,  // ← NEW: auto from inventory
+    }
+
+    const { qtyBulkLiters, qtyLPLiters } = calculateBLandLPL(0, product.bottle_size || '', productType)
+    newItem.qtyBulkLiters = qtyBulkLiters
+    newItem.qtyLPLiters = qtyLPLiters
+
+    setCurrentItem(newItem)
     setSearchQuery(product.name)
     setShowDropdown(false)
     setTimeout(() => {
@@ -609,13 +625,17 @@ export default function Purchases() {
     if (Number(currentItem.totalQty) <= 0 && Number(currentItem.qtyCases) <= 0) {
       return alert('Please enter quantity (cases or total bottles)')
     }
-    setItems(prev => [...prev, { ...currentItem, serialNo: prev.length + 1 }])
+
+    // ─── RECALCULATE BL/LPL BEFORE ADDING ───
+    const { qtyBulkLiters, qtyLPLiters } = calculateBLandLPL(
+      currentItem.totalQty, currentItem.bottleSize, currentItem.productType
+    )
+
+    setItems(prev => [...prev, { ...currentItem, qtyBulkLiters, qtyLPLiters, serialNo: prev.length + 1 }])
     setCurrentItem(EMPTY_ITEM)
     setSearchQuery('')
     setBarcodeDetected(false)
-    setTimeout(() => {
-      if (searchInputRef.current) searchInputRef.current.focus()
-    }, 100)
+    setTimeout(() => { if (searchInputRef.current) searchInputRef.current.focus() }, 100)
   }
 
   const removeItemFromTable = (index) => {
@@ -636,14 +656,14 @@ export default function Purchases() {
     if (!selectedSupplier) return alert('Please select a supplier')
     if (items.length === 0) return alert('Please add at least one item')
 
-    setSaving(true)
-    setError('')
+    setSaving(true); setError('')
     const supplier = suppliers.find(s => s.id === Number(selectedSupplier))
     const { subtotal, vatTotal, cessTotal, specialTotal, tcsTotal, total } = calcTotals()
     const finalInvoiceNumber = invoiceNumber.trim() || generatePurchaseNumber()
 
     const payload = {
       invoice_number: finalInvoiceNumber,
+      company_id: Number(companyId),
       supplier_id: Number(selectedSupplier),
       supplier_name: supplier?.name || '',
       purchase_date: billingDate || format(new Date(), 'yyyy-MM-dd'),
@@ -651,22 +671,16 @@ export default function Purchases() {
       billing_date: billingDate,
       notes: transportPass,
       vehicle_number: vehicleNumber,
-      subtotal,
-      vat_amount: vatTotal,
-      cess_amount: cessTotal,
-      special_amount: specialTotal,
-      tcs_amount: tcsTotal,
-      total_amount: total,
-      status: "RECEIVED",
+      subtotal, vat_amount: vatTotal, cess_amount: cessTotal,
+      special_amount: specialTotal, tcs_amount: tcsTotal,
+      total_amount: total, status: "RECEIVED",
       items: items.map(item => {
         const ratePerUnit = calcRatePerUnit(item)
         return {
           product_id: item.productId,
-          name: item.name,
-          brand: item.brand,
-          category: item.category,
-          barcode: item.barcode,
-          bottle_size: item.bottleSize,
+          company_id: Number(companyId),
+          name: item.name, brand: item.brand, category: item.category,
+          barcode: item.barcode, bottle_size: item.bottleSize,
           traditional_name: item.traditionalName,
           bottles_per_case: Number(item.bottlesPerCase) || 0,
           mrp: Number(item.mrp) || 0,
@@ -687,21 +701,35 @@ export default function Purchases() {
 
     try {
       await createPurchase(payload)
+
+      // ─── NEW: UPDATE INVENTORY PURCHASE RATE FOR EACH PRODUCT ───
+      for (const item of items) {
+        if (item.productId) {
+          const bpc = Number(item.bottlesPerCase) || 0
+          const ratePerCase = Number(item.purchaseRatePerCase) || 0
+          const ratePerUnit = bpc > 0 ? ratePerCase / bpc : 0
+
+          if (ratePerUnit > 0) {
+            try {
+              await updateProduct(item.productId, {
+                purchase_rate: ratePerUnit,
+                landing_cost: ratePerUnit,   // also update landing cost
+              })
+            } catch (err) {
+              console.warn(`Failed to update purchase_rate for product ${item.productId}:`, err)
+            }
+          }
+        }
+      }
+
       setShowForm(false)
-      setSelectedSupplier('')
-      setInvoiceNumber('')
-      setItems([])
-      setNotes('')
-      setInvoiceDate('')
+      setSelectedSupplier(''); setInvoiceNumber(''); setItems([])
+      setNotes(''); setInvoiceDate('')
       setBillingDate(format(new Date(), 'yyyy-MM-dd'))
-      setTransportPass('')
-      setVehicleNumber('')
+      setTransportPass(''); setVehicleNumber('')
       fetchPurchases()
-    } catch (err) {
-      setError(err.message || 'Failed to save purchase')
-    } finally {
-      setSaving(false)
-    }
+    } catch (err) { setError(err.message || 'Failed to save purchase') }
+    finally { setSaving(false) }
   }
 
   const loadItems = async (id) => {
@@ -713,36 +741,25 @@ export default function Purchases() {
         setExpandedItems(prev => ({ ...prev, [id]: normalized }))
       }
       setExpandedId(id)
-    } catch (err) {
-      alert('Failed to load items for this purchase')
-    }
+    } catch (err) { alert('Failed to load items') }
   }
 
-  // ─── Clear Filters Function ───
   const clearFilters = () => {
-    setFilterProduct('')
-    setFilterBrand('')
-    setFilterCategory('')
-    setFilterMrp('')
-    setFilterDateFrom('')
-    setFilterDateTo('')
-    setFilterType('ALL')
+    setFilterProduct(''); setFilterBrand(''); setFilterCategory('')
+    setFilterMrp(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterType('ALL')
   }
 
-  // ─── Filtering Logic ───
   const filteredPurchases = purchases.filter(p => {
     const pDate = p.billing_date || p.purchase_date || ''
     if (filterDateFrom && pDate < filterDateFrom) return false
     if (filterDateTo && pDate > filterDateTo) return false
-
     if (filterType === 'PURCHASE' && p.status === 'RETURN') return false
     if (filterType === 'RETURN' && p.status !== 'RETURN') return false
 
     const hasItemFilter = filterProduct || filterBrand || filterCategory || filterMrp
     if (hasItemFilter) {
       const pItems = expandedItems[p.id] || []
-      if (pItems.length === 0) return false 
-      
+      if (pItems.length === 0) return false
       return pItems.some(item => {
         const matchProduct = !filterProduct || (item.product_name || '').toLowerCase().includes(filterProduct.toLowerCase())
         const matchCategory = !filterCategory || (item.category || '').toLowerCase().includes(filterCategory.toLowerCase())
@@ -751,33 +768,20 @@ export default function Purchases() {
         return matchProduct && matchCategory && matchBrand && matchMrp
       })
     }
-
     return true
   })
 
-  // ─── Export to Excel ───
   const handleExportExcel = () => {
-    if (filteredPurchases.length === 0) {
-      alert('No data to export')
-      return
-    }
-
+    if (filteredPurchases.length === 0) { alert('No data to export'); return }
     const exportData = filteredPurchases.map(p => ({
-      'Invoice No.': p.invoice_number || '',
-      'Billing Date': p.billing_date || p.purchase_date || '',
-      'Invoice Date': p.invoice_date || '',
-      'Supplier': p.supplier_name || '',
-      'Transport Pass': p.notes || '',
-      'Vehicle Number': p.vehicle_number || '',
-      'Subtotal': Number(p.subtotal) || 0,
-      'VAT Amount': Number(p.vat_amount) || 0,
-      'CESS Amount': Number(p.cess_amount) || 0,
-      'Special Amount': Number(p.special_amount) || 0,
-      'TCS Amount': Number(p.tcs_amount) || 0,
-      'Total Amount': Number(p.total_amount) || 0,
+      'Invoice No.': p.invoice_number || '', 'Billing Date': p.billing_date || p.purchase_date || '',
+      'Invoice Date': p.invoice_date || '', 'Supplier': p.supplier_name || '',
+      'Transport Pass': p.notes || '', 'Vehicle Number': p.vehicle_number || '',
+      'Subtotal': Number(p.subtotal) || 0, 'VAT Amount': Number(p.vat_amount) || 0,
+      'CESS Amount': Number(p.cess_amount) || 0, 'Special Amount': Number(p.special_amount) || 0,
+      'TCS Amount': Number(p.tcs_amount) || 0, 'Total Amount': Number(p.total_amount) || 0,
       'Status': p.status || '',
     }))
-
     const ws = XLSX.utils.json_to_sheet(exportData)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Purchases Data')
@@ -788,10 +792,29 @@ export default function Purchases() {
   const isTotalQtyAuto = Number(currentItem.qtyCases) > 0 && Number(currentItem.bottlesPerCase) > 0
   const currentRatePerUnit = calcRatePerUnit(currentItem)
 
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company from the Companies page to view and create purchases.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div />
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <Package className="w-5 h-5 text-blue-500" />
+            Purchases
+          </h2>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
+        </div>
         <div className="flex gap-2">
           <button type="button" onClick={handleExportExcel} className="btn-secondary bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 flex items-center gap-2">
             <FileDown className="w-4 h-4" /> Export
@@ -813,10 +836,9 @@ export default function Purchases() {
         <div className="card p-6 border dark:border-slate-700 shadow-sm">
           <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-6">New Purchase Entry</h3>
           <form onSubmit={handleSubmit} className="space-y-6">
-
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"> Date <span className="text-[10px] text-green-500">(auto today)</span></label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date</label>
                 <input type="date" value={billingDate} onChange={e => setBillingDate(e.target.value)} className="input-field bg-green-50 dark:bg-green-900/10" />
               </div>
               <div>
@@ -834,7 +856,7 @@ export default function Purchases() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Invoice Date <span className="text-[10px] text-amber-500">(manual)</span></label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Invoice Date</label>
                 <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className="input-field" />
               </div>
               <div>
@@ -853,13 +875,8 @@ export default function Purchases() {
                 <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3 flex items-center gap-2">
                   <Package className="w-4 h-4 text-blue-500" /> Add New Item
                 </h4>
-                
-                {/* ── NEW BUTTON: OPEN ADD PRODUCT MODAL ── */}
-                <button 
-                  type="button"
-                  onClick={() => setShowProductModal(true)} 
-                  className="w-full mb-4 py-2 px-3 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 text-xs font-medium hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors flex items-center justify-center gap-2"
-                >
+
+                <button type="button" onClick={() => setShowProductModal(true)} className="w-full mb-4 py-2 px-3 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 text-xs font-medium hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors flex items-center justify-center gap-2">
                   <Plus className="w-3.5 h-3.5" /> Create New Product
                 </button>
 
@@ -905,13 +922,41 @@ export default function Purchases() {
                       <input type="text" value={currentItem.name} onChange={e => handleItemChange('name', e.target.value)} placeholder="e.g. Royal Stag" className="input-field text-sm" />
                     </div>
                     <div><label className="block text-xs text-gray-500 mb-1">Brand</label><input type="text" value={currentItem.brand} onChange={e => handleItemChange('brand', e.target.value)} className="input-field text-sm" /></div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Product Type</label>
+                      <select value={currentItem.productType} onChange={e => handleItemChange('productType', e.target.value)} className="input-field text-sm">
+                        {PRODUCT_TYPES.map(pt => <option key={pt} value={pt}>{pt}</option>)}
+                      </select>
+                    </div>
                     <div><label className="block text-xs text-gray-500 mb-1">Category</label><input type="text" value={currentItem.category} onChange={e => handleItemChange('category', e.target.value)} className="input-field text-sm" /></div>
                     <div><label className="block text-xs text-gray-500 mb-1">MRP (₹) *</label><input type="number" value={currentItem.mrp} onChange={e => handleItemChange('mrp', e.target.value)} className="input-field text-sm" /></div>
 
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Purchase Rate / Case (₹) * <span className="ml-1 text-[10px] text-red-500 font-medium">manual</span></label>
-                      <input type="number" min="0" step="0.01" value={currentItem.purchaseRatePerCase} onChange={e => handleItemChange('purchaseRatePerCase', e.target.value)} className="input-field text-sm font-semibold border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/20" placeholder="Enter per case" />
-                    </div>
+  <label className="block text-xs text-gray-500 mb-1">
+    Purchase Rate / Case (₹) *
+    {currentItem.purchaseRatePerCase && Number(currentItem.purchaseRatePerCase) > 0 && currentItem.bottlesPerCase > 0 ? (
+      <span className="ml-1 text-[10px] text-blue-500 font-medium">
+        auto from inventory (₹{(Number(currentItem.purchaseRatePerCase) / currentItem.bottlesPerCase).toFixed(2)}/unit)
+      </span>
+    ) : (
+      <span className="ml-1 text-[10px] text-red-500 font-medium">manual</span>
+    )}
+  </label>
+  <input
+    type="number"
+    min="0"
+    step="0.01"
+    value={currentItem.purchaseRatePerCase}
+    onChange={e => handleItemChange('purchaseRatePerCase', e.target.value)}
+    className={clsx(
+      "input-field text-sm font-semibold",
+      currentItem.purchaseRatePerCase && Number(currentItem.purchaseRatePerCase) > 0 && currentItem.bottlesPerCase > 0
+        ? "border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-900/20"
+        : "border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/20"
+    )}
+    placeholder="Enter per case or auto-filled"
+  />
+</div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Rate / Unit (Bottle) ₹ <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span></label>
                       <input type="text" value={currentRatePerUnit > 0 ? `₹${currentRatePerUnit.toFixed(2)}` : '—'} readOnly className="input-field text-sm font-semibold bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 cursor-not-allowed" />
@@ -926,8 +971,52 @@ export default function Purchases() {
                       <label className="block text-xs text-gray-500 mb-1">Total Qty (Bottles) {isTotalQtyAuto ? <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span> : <span className="ml-1 text-[10px] text-amber-500 font-medium">manual</span>}</label>
                       <input type="number" min="0" value={currentItem.totalQty} onChange={e => handleItemChange('totalQty', e.target.value)} readOnly={isTotalQtyAuto} className={clsx("input-field text-sm font-semibold", isTotalQtyAuto ? "bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 cursor-not-allowed" : "bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300")} />
                     </div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Qty in Bulk Ltrs</label><input type="number" min="0" value={currentItem.qtyBulkLiters} onChange={e => handleItemChange('qtyBulkLiters', e.target.value)} className="input-field text-sm" /></div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Eq. in L.P. Liters</label><input type="number" min="0" value={currentItem.qtyLPLiters} onChange={e => handleItemChange('qtyLPLiters', e.target.value)} className="input-field text-sm" /></div>
+
+                    {/* ─── BL (Bulk Liters) — AUTO CALCULATED ─── */}
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        BL (Bulk Liters) <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={currentItem.qtyBulkLiters > 0 ? currentItem.qtyBulkLiters.toFixed(3) : '0'}
+                        readOnly
+                        className="input-field text-sm font-semibold bg-cyan-50 dark:bg-cyan-900/20 border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300 cursor-not-allowed"
+                      />
+                      <p className="text-[9px] text-gray-400 mt-0.5">
+                        {currentItem.totalQty} btls × {parseInt(currentItem.bottleSize) || 0}ml ÷ 1000
+                      </p>
+                    </div>
+
+                    {/* ─── LPL (LP Liters) — AUTO CALCULATED ─── */}
+                                      
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        LPL (LP Liters)
+                        {currentItem.productType === 'BEER'
+                          ? <span className="ml-1 text-[10px] text-red-500 font-medium">N/A for Beer</span>
+                          : <span className="ml-1 text-[10px] text-green-500 font-medium">auto (75% of BL)</span>
+                        }
+                      </label>
+                      <input
+                        type="text"
+                        value={currentItem.productType === 'BEER' ? 'N/A' : (currentItem.qtyLPLiters > 0 ? currentItem.qtyLPLiters.toFixed(3) : '0')}
+                        readOnly
+                        className={clsx(
+                          "input-field text-sm font-semibold cursor-not-allowed",
+                          currentItem.productType === 'BEER'
+                            ? "bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-400 dark:text-red-500 line-through"
+                            : "bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+                        )}
+                      />
+                      <p className="text-[9px] text-gray-400 mt-0.5">
+                        {currentItem.productType === 'BEER'
+                          ? 'Beer has only BL in Odisha'
+                          : 'LPL = 75% of BL (IMFL/Wine/CL)'  // ← CHANGED
+                        }
+                      </p>
+                    </div>
+
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Opening Stock {isTotalQtyAuto && <span className="ml-1 text-[10px] text-green-500">auto</span>}</label>
                       <input type="number" min="0" value={currentItem.openingStock} onChange={e => handleItemChange('openingStock', e.target.value)} readOnly={isTotalQtyAuto} className={clsx("input-field text-sm", isTotalQtyAuto && "bg-gray-50 dark:bg-gray-800 cursor-not-allowed text-gray-400")} />
@@ -954,12 +1043,15 @@ export default function Purchases() {
                         <tr>
                           <th className="p-2 text-left font-semibold">#</th>
                           <th className="p-2 text-left font-semibold">Item</th>
+                          <th className="p-2 text-center font-semibold">Type</th>
                           <th className="p-2 text-center font-semibold">Size</th>
                           <th className="p-2 text-center font-semibold">MRP</th>
                           <th className="p-2 text-center font-semibold text-orange-600">Rate/Case ₹</th>
                           <th className="p-2 text-center font-semibold text-green-600">Rate/Unit ₹</th>
                           <th className="p-2 text-center font-semibold">Cases</th>
-                          <th className="p-2 text-center font-semibold font-bold text-green-600">Total Btls</th>
+                          <th className="p-2 text-center font-semibold font-bold text-green-600">Btls</th>
+                          <th className="p-2 text-center font-semibold text-cyan-600">BL</th>
+                          <th className="p-2 text-center font-semibold text-purple-600">LPL</th>
                           <th className="p-2 text-right font-semibold text-blue-600">Total ₹</th>
                           <th className="p-2 text-center font-semibold">Act</th>
                         </tr>
@@ -972,12 +1064,15 @@ export default function Purchases() {
                             <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                               <td className="p-2 font-medium">{item.serialNo}</td>
                               <td className="p-2"><div className="font-semibold text-gray-900 dark:text-gray-100">{item.name}</div><div className="text-[10px] text-gray-400">{item.brand} · {item.traditionalName}</div></td>
+                              <td className="p-2 text-center"><span className={clsx("text-[10px] font-semibold px-1.5 py-0.5 rounded", item.productType === 'BEER' ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400" : item.productType === 'WINE' ? "bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400" : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400")}>{item.productType}</span></td>
                               <td className="p-2 text-center text-gray-500">{item.bottleSize || '—'}</td>
                               <td className="p-2 text-center">₹{item.mrp}</td>
                               <td className="p-2 text-center font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20">₹{Number(item.purchaseRatePerCase).toFixed(2)}</td>
                               <td className="p-2 text-center font-semibold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20">₹{ratePerUnit.toFixed(2)}</td>
                               <td className="p-2 text-center font-medium">{item.qtyCases || '-'}</td>
                               <td className="p-2 text-center font-bold text-green-600 dark:text-green-400 bg-green-50/50 dark:bg-green-900/10">{item.totalQty}</td>
+                              <td className="p-2 text-center font-semibold text-cyan-600 dark:text-cyan-400 bg-cyan-50/50 dark:bg-cyan-900/10">{item.qtyBulkLiters > 0 ? item.qtyBulkLiters.toFixed(3) : '-'}</td>
+                              <td className={clsx("p-2 text-center font-semibold bg-purple-50/50 dark:bg-purple-900/10", item.productType === 'BEER' ? "text-red-400 line-through" : "text-purple-600 dark:text-purple-400")}>{item.productType === 'BEER' ? 'N/A' : (item.qtyLPLiters > 0 ? item.qtyLPLiters.toFixed(3) : '-')}</td>
                               <td className="p-2 text-right font-bold text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-900/10">₹{lineTotal.toFixed(2)}</td>
                               <td className="p-2 text-center"><button type="button" onClick={() => removeItemFromTable(i)} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                             </tr>
@@ -986,11 +1081,12 @@ export default function Purchases() {
                       </tbody>
                       <tfoot className="bg-slate-50 dark:bg-slate-800/50 border-t-2 border-slate-300 dark:border-slate-600 sticky bottom-0 z-10">
                         <tr>
-                          <td colSpan={4} className="p-2 text-xs font-bold text-gray-700 dark:text-gray-300 text-right">Total</td>
+                          <td colSpan={5} className="p-2 text-xs font-bold text-gray-700 dark:text-gray-300 text-right">Total</td>
                           <td className="p-2 text-center">—</td>
-                          <td className="p-2 text-center">—</td>
-                          <td className="p-2 text-center font-bold text-gray-700 dark:text-gray-300">{items.reduce((s, i) => s + (Number(i.qtyCases) || 0), 0)}</td>
+                          <td className="p-2 text-center">{items.reduce((s, i) => s + (Number(i.qtyCases) || 0), 0)}</td>
                           <td className="p-2 text-center font-bold text-green-600 dark:text-green-400">{items.reduce((s, i) => s + (Number(i.totalQty) || 0), 0)}</td>
+                          <td className="p-2 text-center font-bold text-cyan-600 dark:text-cyan-400">{items.reduce((s, i) => s + (Number(i.qtyBulkLiters) || 0), 0).toFixed(3)}</td>
+                          <td className="p-2 text-center font-bold text-purple-600 dark:text-purple-400">{items.filter(i => i.productType !== 'BEER').reduce((s, i) => s + (Number(i.qtyLPLiters) || 0), 0).toFixed(3)}</td>
                           <td className="p-2 text-right font-bold text-blue-700 dark:text-blue-300">₹{items.reduce((s, i) => s + calcLineTotal(i), 0).toFixed(2)}</td>
                           <td></td>
                         </tr>
@@ -1053,6 +1149,7 @@ export default function Purchases() {
               <tr className="border-b border-gray-100 dark:border-gray-800 bg-slate-50 dark:bg-slate-800/50">
                 <th className="table-header text-left">Invoice No.</th>
                 <th className="table-header text-left">Date</th>
+                <th className="table-header text-left">Supplier</th>
                 <th className="table-header text-right">VAT</th>
                 <th className="table-header text-right">Total</th>
                 <th className="table-header text-center">Status</th>
@@ -1061,12 +1158,12 @@ export default function Purchases() {
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
               {loading ? (
-                <tr><td colSpan={6} className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary-500 mx-auto" /></td></tr>
+                <tr><td colSpan={7} className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary-500 mx-auto" /></td></tr>
               ) : filteredPurchases.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-10 text-sm text-gray-400">No purchases match the selected filters</td></tr>
+                <tr><td colSpan={7} className="text-center py-10 text-sm text-gray-400">No purchases match the selected filters</td></tr>
               ) : filteredPurchases.map(p => (
-                <>
-                  <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                <Fragment key={p.id}>
+                  <tr className={clsx("hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors", p.status === 'RETURN' && "bg-red-50/30 dark:bg-red-900/10")}>
                     <td className="table-cell font-mono text-xs font-semibold">{p.invoice_number}</td>
                     <td className="table-cell text-gray-500">
                       {p.billing_date
@@ -1076,12 +1173,11 @@ export default function Purchases() {
                           : '—'
                       }
                     </td>
+                    <td className="table-cell text-gray-600 dark:text-gray-400">{p.supplier_name || '—'}</td>
                     <td className="table-cell text-right">₹{Number(p.vat_amount).toFixed(2)}</td>
                     <td className="table-cell text-right font-semibold">₹{Number(p.total_amount).toFixed(2)}</td>
                     <td className="table-cell text-center">
-                      <span className={clsx("badge", p.status === 'RETURN' ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400' : 'badge-success')}>
-                        {p.status}
-                      </span>
+                      <span className={clsx("inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold", p.status === 'RETURN' ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400" : "bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400")}>{p.status}</span>
                     </td>
                     <td className="table-cell text-center">
                       <button onClick={() => loadItems(p.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors">
@@ -1091,21 +1187,24 @@ export default function Purchases() {
                   </tr>
                   {expandedId === p.id && expandedItems[p.id] && (
                     <tr key={`${p.id}-items`} className="bg-gray-50/50 dark:bg-gray-800/20">
-                      <td colSpan={6} className="px-6 py-3">
+                      <td colSpan={7} className="px-6 py-3">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                              <th className="text-left py-1 font-medium">#</th>
                               <th className="text-left py-1 font-medium">Product</th>
-                              <th className="text-center py-1 font-medium w-16">Size</th>
-                              <th className="text-center py-1 font-medium w-16">Cases</th>
-                              <th className="text-center py-1 font-medium w-16">Total Btls</th>
-                              <th className="text-right py-1 font-medium w-20">Rate/Case</th>
-                              <th className="text-right py-1 font-medium w-20">Rate/Unit</th>
-                              <th className="text-right py-1 font-medium w-20">Total</th>
+                              <th className="text-center py-1 font-medium">Size</th>
+                              <th className="text-center py-1 font-medium">Cases</th>
+                              <th className="text-center py-1 font-medium font-bold text-green-500">Btls</th>
+                              <th className="text-center py-1 font-medium text-cyan-500">BL</th>
+                              <th className="text-center py-1 font-medium text-purple-500">LPL</th>
+                              <th className="text-right py-1 font-medium text-orange-500">Rate/Case</th>
+                              <th className="text-right py-1 font-medium text-green-500">Rate/Unit</th>
+                              <th className="text-right py-1 font-medium">Total</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {expandedItems[p.id].map(item => {
+                            {expandedItems[p.id].map((item, idx) => {
                               const cases = item.qty_cases || 0
                               const totalBtls = item.total_bottles || 0
                               const ratePerCase = item.unit_cost || 0
@@ -1115,6 +1214,7 @@ export default function Purchases() {
 
                               return (
                                 <tr key={item.id} className="border-b border-gray-100 dark:border-gray-800">
+                                  <td className="py-1.5 text-gray-400">{idx + 1}</td>
                                   <td className="py-1.5">
                                     <span className="font-medium text-gray-800 dark:text-gray-200">{item.product_name}</span>
                                     {item.traditional_name && <span className="text-gray-400 ml-1">· {item.traditional_name}</span>}
@@ -1122,6 +1222,8 @@ export default function Purchases() {
                                   <td className="text-center py-1.5 text-gray-500">{item.bottle_size || '-'}</td>
                                   <td className="text-center py-1.5 font-medium">{cases || '-'}</td>
                                   <td className="text-center py-1.5 font-bold text-green-600">{totalBtls || '-'}</td>
+                                  <td className="text-center py-1.5 font-semibold text-cyan-600 dark:text-cyan-400">{item.qty_bulk_liters > 0 ? item.qty_bulk_liters.toFixed(3) : '-'}</td>
+                                  <td className="text-center py-1.5 font-semibold text-purple-600 dark:text-purple-400">{item.qty_lp_liters > 0 ? item.qty_lp_liters.toFixed(3) : '-'}</td>
                                   <td className="text-right py-1.5 font-semibold text-orange-600">₹{ratePerCase.toFixed(2)}</td>
                                   <td className="text-right py-1.5 font-semibold text-green-600">₹{ratePerUnit.toFixed(2)}</td>
                                   <td className="text-right py-1.5 font-medium">₹{item.total_cost.toFixed(2)}</td>
@@ -1133,21 +1235,17 @@ export default function Purchases() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* ── RENDER THE PRODUCT MODAL ── */}
-      <ProductModal 
-        isOpen={showProductModal} 
-        onClose={() => setShowProductModal(false)} 
-        onSaveSuccess={() => {
-          // Optional: Auto-refresh search or show success toast
-          alert('Product created successfully! You can now search for it.')
-        }} 
+      <ProductModal
+        isOpen={showProductModal}
+        onClose={() => setShowProductModal(false)}
+        onSaveSuccess={() => alert('Product created successfully! You can now search for it.')}
       />
     </div>
   )

@@ -1,13 +1,13 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
-from datetime import date  # ─── CHANGED: datetime → date
-
+from datetime import date 
 
 # --- Item Schemas ---
 class PurchaseItemBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     product_id: Optional[int] = None
+    company_id: Optional[int] = None # ─── ADDED
     product_name: str = Field(alias="name")
     brand: Optional[str] = None
     category: Optional[str] = None
@@ -46,15 +46,13 @@ class PurchaseBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     invoice_number: str
+    company_id: Optional[int] = None # ─── ADDED
     supplier_id: Optional[int] = None
     supplier_name: Optional[str] = None
 
-    # ─── CHANGED: datetime → date (date only) ───
     purchase_date: Optional[date] = None
-
-    # ─── ADDED: New date fields ───
-    invoice_date: Optional[date] = None       # Manual date from supplier invoice
-    billing_date: Optional[date] = None       # Auto-today billing date
+    invoice_date: Optional[date] = None       
+    billing_date: Optional[date] = None       
 
     subtotal: float = 0.0
     vat_amount: float = 0.0
@@ -63,7 +61,7 @@ class PurchaseBase(BaseModel):
     tcs_amount: float = 0.0
     total_amount: float = 0.0
     notes: Optional[str] = None
-    vehicle_number: Optional[str] = None      # ─── ADDED
+    vehicle_number: Optional[str] = None      
     status: str = "RECEIVED"
 
 
@@ -73,8 +71,8 @@ class PurchaseCreate(PurchaseBase):
 
 class PurchaseResponse(PurchaseBase):
     id: int
-    created_at: Optional[date] = None         # ─── CHANGED
-    updated_at: Optional[date] = None         # ─── CHANGED
+    created_at: Optional[date] = None         
+    updated_at: Optional[date] = None         
 
     class Config:
         from_attributes = True

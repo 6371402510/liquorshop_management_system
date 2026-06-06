@@ -7,6 +7,7 @@ class Sale(Base):
     __tablename__ = "sales"
 
     id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, nullable=True, index=True) # ─── ADDED
     invoice_number = Column(String, unique=True, index=True, nullable=False)
     customer_name = Column(String, default="Walk-in Customer")
     customer_phone = Column(String, nullable=True)
@@ -15,7 +16,6 @@ class Sale(Base):
     status = Column(String, default="COMPLETED")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # ─── ADDED RELATIONSHIP ───
     items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
 
 
@@ -24,6 +24,7 @@ class SaleItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False)
+    company_id = Column(Integer, nullable=True, index=True) # ─── ADDED
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     product_name = Column(String, nullable=False)
     quantity = Column(Integer, default=1)
@@ -31,5 +32,4 @@ class SaleItem(Base):
     discount = Column(Float, default=0.0)
     total_price = Column(Float, default=0.0)
 
-    # ─── ADDED RELATIONSHIP ───
     sale = relationship("Sale", back_populates="items")

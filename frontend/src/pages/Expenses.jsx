@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react'
 import { getExpenses, createExpense, updateExpense, deleteExpense } from '../apiservices/expensesapi'
 import { getEmployees } from '../apiservices/employeeapi'
-// ADDED: Import Category API & Attendance API
 import { getCategories, createCategory as apiCreateCategory, deleteCategory as apiDeleteCategory } from '../apiservices/expensesapi'
 import { getMonthlyReport } from '../apiservices/attendanceapi'
-import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, IndianRupee, Clock, CheckCircle, XCircle, Receipt, CalendarDays, ChevronUp, ChevronDown, AlertCircle } from 'lucide-react'
+import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, IndianRupee, Clock, CheckCircle, XCircle, Receipt, CalendarDays, ChevronUp, ChevronDown, AlertCircle, Store } from 'lucide-react'
 import clsx from 'clsx'
 
-// Payment and Status constants remain here
 const PAYMENT_METHODS = ['CASH', 'UPI', 'BANK_TRANSFER', 'CARD', 'CHEQUE']
 
 const emptyForm = {
@@ -16,18 +14,22 @@ const emptyForm = {
   amount: '',
   payment_method: 'CASH',
   description: '',
-  employee_name: '', // Optional
-  designation: '',   // Optional
-  receipt_number: '',// Optional
+  employee_name: '',
+  designation: '',   
+  receipt_number: '',
 }
 
 export default function Expenses() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [expenses, setExpenses] = useState([])
   const [employees, setEmployees] = useState([])
   const [categories, setCategories] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [calculatingSalary, setCalculatingSalary] = useState(false) // Loader for salary calc
+  const [calculatingSalary, setCalculatingSalary] = useState(false)
   
   // Filters
   const [search, setSearch] = useState('')
@@ -45,18 +47,41 @@ export default function Expenses() {
   const [sortField, setSortField] = useState('expense_date')
   const [sortDir, setSortDir] = useState('desc')
 
-  // Initial Data Fetch
+  // ─── Listen for company changes ───
   useEffect(() => {
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
+
+  // ─── Fetch data when company or date range changes ───
+  useEffect(() => {
+    if (!companyId) {
+      setExpenses([])
+      setCategories([])
+      setLoading(false)
+      return
+    }
     fetchExpenses()
     fetchEmployees()
     fetchCategories()
-  }, [startDate, endDate])
+  }, [startDate, endDate, companyId])
 
   const fetchExpenses = async () => {
     setLoading(true)
     setError('')
     try {
-      const data = await getExpenses(startDate, endDate)
+      const data = await getExpenses(Number(companyId), startDate, endDate)
       setExpenses(data || [])
     } catch (err) {
       setError(err.message || 'Failed to load expenses')
@@ -67,7 +92,7 @@ export default function Expenses() {
 
   const fetchEmployees = async () => {
     try {
-      const data = await getEmployees()
+      const data = await getEmployees(Number(companyId))
       setEmployees(data || [])
     } catch (err) {
       console.error('Failed to load employees', err)
@@ -76,7 +101,7 @@ export default function Expenses() {
 
   const fetchCategories = async () => {
     try {
-      const data = await getCategories()
+      const data = await getCategories(Number(companyId))
       setCategories(data || [])
     } catch (err) {
       console.error('Failed to load categories', err)
@@ -93,7 +118,7 @@ export default function Expenses() {
     }
 
     try {
-      const newCat = await apiCreateCategory(val)
+      const newCat = await apiCreateCategory(val, Number(companyId))
       setCategories([...categories, newCat])
       setForm(prev => ({ ...prev, category: newCat.name }))
       setShowCategoryDropdown(false)
@@ -106,7 +131,7 @@ export default function Expenses() {
     if (!confirm(`Delete category "${name}"?`)) return
 
     try {
-      await apiDeleteCategory(id)
+      await apiDeleteCategory(id, Number(companyId))
       const newCats = categories.filter(c => c.id !== id)
       setCategories(newCats)
       if (form.category === name) {
@@ -140,14 +165,13 @@ export default function Expenses() {
     setShowModal(true)
   }
 
-  // NEW: Function to calculate salary based on employee and date
   const calculateSalary = async (empId, dateStr) => {
     if (!empId || !dateStr) return;
     
     setCalculatingSalary(true);
     try {
-      const month = dateStr.slice(0, 7); // Extract YYYY-MM
-      const reportData = await getMonthlyReport(month);
+      const month = dateStr.slice(0, 7);
+      const reportData = await getMonthlyReport(month, Number(companyId));
       const attRecord = reportData.find(r => r.employee_id === empId);
       
       const emp = employees.find(e => e.id === empId);
@@ -160,7 +184,6 @@ export default function Expenses() {
         setForm(prev => ({ 
           ...prev, 
           amount: calculatedAmount.toFixed(2),
-          // Auto-set category if it's a salary payout
           category: prev.category || 'SALARY_PAYOUT' 
         }));
       }
@@ -171,12 +194,10 @@ export default function Expenses() {
     }
   };
 
-  // UPDATED: Handle typing in employee name with datalist
   const handleEmployeeNameChange = async (e) => {
     const name = e.target.value;
     setForm(prev => ({ ...prev, employee_name: name, amount: '' }));
 
-    // Auto-fill designation and calculate salary if it matches an employee exactly
     const selectedEmp = employees.find(emp => `${emp.first_name} ${emp.last_name}` === name);
     if (selectedEmp) {
       setForm(prev => ({ ...prev, designation: selectedEmp.designation || '' }));
@@ -186,12 +207,10 @@ export default function Expenses() {
     }
   };
 
-  // NEW: Handle Date Change to recalculate salary if employee is selected
   const handleDateChange = async (e) => {
     const newDate = e.target.value;
     setForm(prev => ({ ...prev, expense_date: newDate }));
 
-    // If an employee is already selected, recalculate their salary for the new month
     const selectedEmp = employees.find(emp => `${emp.first_name} ${emp.last_name}` === form.employee_name);
     if (selectedEmp) {
       await calculateSalary(selectedEmp.id, newDate);
@@ -205,12 +224,13 @@ export default function Expenses() {
 
     const payload = {
       ...form,
+      company_id: Number(companyId),  // ← ADDED
       amount: Number(form.amount) || 0,
     }
 
     try {
       if (editingId) {
-        await updateExpense(editingId, payload)
+        await updateExpense(editingId, payload, Number(companyId))
       } else {
         await createExpense(payload)
       }
@@ -226,7 +246,7 @@ export default function Expenses() {
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this expense record?')) return
     try {
-      await deleteExpense(id)
+      await deleteExpense(id, Number(companyId))
       fetchExpenses()
     } catch (err) {
       alert(err.message || 'Failed to delete expense')
@@ -241,9 +261,7 @@ export default function Expenses() {
   const summaryStats = expenses.reduce((acc, e) => {
     acc.totalAmount += e.amount || 0
     return acc
-  }, {
-    totalAmount: 0
-  })
+  }, { totalAmount: 0 })
 
   const filtered = expenses.filter(e => {
     const q = search.toLowerCase()
@@ -253,7 +271,6 @@ export default function Expenses() {
       (e.designation || '').toLowerCase().includes(q) || 
       (e.receipt_number || '').toLowerCase().includes(q)
     const matchCat = categoryFilter === 'ALL' || e.category === categoryFilter
-    
     return matchSearch && matchCat
   })
 
@@ -277,11 +294,22 @@ export default function Expenses() {
     c.name.toLowerCase().includes(form.category.toLowerCase()) || !form.category
   )
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to manage expenses.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
-        <div className="flex flex-wrap gap-2 flex-1">
+        <div className="flex flex-wrap gap-2 flex-1 items-center">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input
@@ -296,6 +324,11 @@ export default function Expenses() {
             <option value="ALL">All Categories</option>
             {categories.map(c => <option key={c.id} value={c.name}>{c.name.replace(/_/g, ' ')}</option>)}
           </select>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
         </div>
         <button onClick={openAdd} className="btn-primary">
           <Plus className="w-4 h-4" /> Add Expense
@@ -380,7 +413,7 @@ export default function Expenses() {
                   <td className="table-cell text-sm text-gray-600 dark:text-gray-300">{e.employee_name || '—'}</td>
                   <td className="table-cell text-sm text-gray-500 dark:text-gray-400">{e.designation || '—'}</td>
                   <td className="table-cell text-xs text-gray-500">{(e.payment_method || '').replace('_', ' ')}</td>
-                  <td className="table-cell text-sm font-semibold text-gray-900 dark:text-white ">₹{Number(e.amount).toLocaleString('en-IN')}</td>
+                  <td className="table-cell text-sm font-semibold text-gray-900 dark:text-white">₹{Number(e.amount).toLocaleString('en-IN')}</td>
                   <td className="table-cell">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => openEdit(e)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors">
@@ -422,7 +455,6 @@ export default function Expenses() {
               </button>
             </div>
             
-            {/* Modal Error */}
             {error && (
               <div className="mx-6 mt-4 flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800">
                 <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
@@ -434,13 +466,11 @@ export default function Expenses() {
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Expense Details</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
-                  {/* UPDATED: Date change triggers salary recalculation */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Expense Date *</label>
                     <input required type="date" value={form.expense_date} onChange={handleDateChange} className="input-field" />
                   </div>
                   
-                  {/* DYNAMIC CATEGORY INPUT (Backend Connected) */}
                   <div className="relative z-20">
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Category *</label>
                     <div className="flex gap-1">
@@ -465,7 +495,6 @@ export default function Expenses() {
                       </button>
                     </div>
 
-                    {/* Custom Dropdown List */}
                     {showCategoryDropdown && (
                       <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto z-50">
                         {categoryOptions.length > 0 ? categoryOptions.map(c => (
@@ -491,7 +520,6 @@ export default function Expenses() {
                     )}
                   </div>
 
-                  {/* UPDATED: Amount field shows calculation loader */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Amount (₹) *</label>
                     <div className="relative">
@@ -533,7 +561,6 @@ export default function Expenses() {
                 <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-4 border-b pb-2">Employee & Reference</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
                   
-                  {/* UPDATED: Selecting employee triggers salary calc */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Employee Name</label>
                     <input 
@@ -552,7 +579,6 @@ export default function Expenses() {
                     </datalist>
                   </div>
 
-                  {/* UPDATED: Editable Designation field */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Designation</label>
                     <input 

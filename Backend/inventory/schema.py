@@ -4,7 +4,7 @@ from datetime import datetime
 
 class ProductBase(BaseModel):
     model_config = ConfigDict(alias_generator=lambda x: x, populate_by_name=True)
-
+    company_id: Optional[int] = None
     item_code: str
     barcode: Optional[str] = None
     name: str

@@ -25,6 +25,10 @@ const GROUP_BY_OPTIONS = [
 ]
 
 export default function Reports() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [activeTab, setActiveTab] = useState('counter')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -37,10 +41,36 @@ export default function Reports() {
   const [salesType, setSalesType] = useState('ALL')
   const [paymentMode, setPaymentMode] = useState('ALL')
 
+  // ─── Listen for company changes ───
   useEffect(() => {
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
+
+  // ─── Fetch products map ───
+  // API: getPosProducts(companyId, search) / getGodownProducts(companyId, search)
+  useEffect(() => {
+    if (!companyId) {
+      setProductsMap({})
+      return
+    }
+
     const fetchProducts = async () => {
       try {
-        const data = activeTab === 'counter' ? await getPosProducts('') : await getGodownProducts('');
+        const data = activeTab === 'counter'
+          ? await getPosProducts(Number(companyId), '')       // ✅ companyId FIRST
+          : await getGodownProducts(Number(companyId), '')    // ✅ companyId FIRST
         const map = {};
         (data || []).forEach(p => { map[p.id] = p; });
         setProductsMap(map);
@@ -49,11 +79,17 @@ export default function Reports() {
       }
     };
     fetchProducts();
-  }, [activeTab]);
+  }, [activeTab, companyId]);
 
+  // ─── Fetch report data ───
+  // API: getCounterSales(companyId, dateFrom, dateTo) / getGodownSales(companyId, dateFrom, dateTo)
   useEffect(() => {
+    if (!companyId) {
+      setRawData([])
+      return
+    }
     fetchReportData()
-  }, [activeTab, dateFrom, dateTo])
+  }, [activeTab, dateFrom, dateTo, companyId])
 
   const fetchReportData = async () => {
     setLoading(true)
@@ -61,9 +97,9 @@ export default function Reports() {
     try {
       let salesData;
       if (activeTab === 'counter') {
-        salesData = await getCounterSales(dateFrom, dateTo);
+        salesData = await getCounterSales(Number(companyId), dateFrom, dateTo);   // ✅ companyId FIRST
       } else {
-        salesData = await getGodownSales(dateFrom, dateTo);
+        salesData = await getGodownSales(Number(companyId), dateFrom, dateTo);    // ✅ companyId FIRST
       }
 
       const transformed = (salesData || []).map(sale => ({
@@ -211,25 +247,44 @@ export default function Reports() {
     const ws = XLSX.utils.json_to_sheet(exportData)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Sales Report')
-    XLSX.writeFile(wb, `${activeTab}_sales_report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `${activeTab}_sales_report_${companyName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to view sales reports.</p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
+      {/* ─── Header with Tab Toggle & Company Badge ─── */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-          <button
-            onClick={() => { setActiveTab('counter'); setGroupBy('date') }}
-            className={clsx("flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all", activeTab === 'counter' ? "bg-white dark:bg-gray-900 shadow-sm text-blue-600 dark:text-blue-400" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300")}
-          >
-            <Store className="w-4 h-4" /> Counter Sales
-          </button>
-          <button
-            onClick={() => { setActiveTab('godown'); setGroupBy('date') }}
-            className={clsx("flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all", activeTab === 'godown' ? "bg-white dark:bg-gray-900 shadow-sm text-purple-600 dark:text-purple-400" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300")}
-          >
-            <Warehouse className="w-4 h-4" /> Godown Sales
-          </button>
+        <div className="flex items-center gap-3">
+          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <button
+              onClick={() => { setActiveTab('counter'); setGroupBy('date') }}
+              className={clsx("flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all", activeTab === 'counter' ? "bg-white dark:bg-gray-900 shadow-sm text-blue-600 dark:text-blue-400" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300")}
+            >
+              <Store className="w-4 h-4" /> Counter Sales
+            </button>
+            <button
+              onClick={() => { setActiveTab('godown'); setGroupBy('date') }}
+              className={clsx("flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all", activeTab === 'godown' ? "bg-white dark:bg-gray-900 shadow-sm text-purple-600 dark:text-purple-400" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300")}
+            >
+              <Warehouse className="w-4 h-4" /> Godown Sales
+            </button>
+          </div>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
         </div>
         <button onClick={handleExport} disabled={loading || tableData.length === 0} className="btn-secondary bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 flex items-center gap-2 disabled:opacity-50">
           <FileDown className="w-4 h-4" /> Export Report
@@ -243,6 +298,7 @@ export default function Reports() {
         </div>
       )}
 
+      {/* ─── Summary Cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
         <div className="card p-4 border-l-4 border-blue-500">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs mb-1"><Receipt className="w-3.5 h-3.5" /> Bills</div>
@@ -256,7 +312,6 @@ export default function Reports() {
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs mb-1">
             <Users className="w-3.5 h-3.5" /> Non Bill Customer
           </div>
-
           <p className="text-xl font-bold text-orange-600 dark:text-orange-400">
             {summary.nonBillCustomers}
           </p>
@@ -283,6 +338,7 @@ export default function Reports() {
         </div>
       </div>
 
+      {/* ─── Filters & Grouping ─── */}
       <div className="card p-4 border dark:border-slate-700 shadow-sm">
         <div className="flex items-center gap-2 mb-3 text-gray-700 dark:text-gray-300 font-medium text-sm">
           <Filter className="w-4 h-4 text-blue-500" /> Report Filters & Grouping
@@ -320,8 +376,35 @@ export default function Reports() {
             </select>
           </div>
         </div>
+
+        {/* Quick Date Presets */}
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+          <span className="text-[10px] uppercase font-semibold text-gray-400 tracking-wide self-center mr-1">Quick:</span>
+          {[
+            { label: 'Today', from: format(new Date(), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+            { label: 'This Week', from: format(new Date(Date.now() - 6 * 86400000), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+            { label: 'This Month', from: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+            { label: 'This Year', from: format(new Date(new Date().getFullYear(), 0, 1), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') },
+            { label: 'Last Month', from: format(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), 'yyyy-MM-dd'), to: format(new Date(new Date().getFullYear(), new Date().getMonth(), 0), 'yyyy-MM-dd') },
+          ].map(preset => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => { setDateFrom(preset.from); setDateTo(preset.to) }}
+              className={clsx(
+                "text-[10px] font-medium px-2.5 py-1 rounded-full border transition-colors",
+                dateFrom === preset.from && dateTo === preset.to
+                  ? "bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
+                  : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {/* ─── Report Table & Top Selling ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card overflow-hidden border dark:border-slate-700 shadow-sm">
           <div className="p-4 border-b dark:border-slate-700 flex justify-between items-center">
@@ -378,6 +461,29 @@ export default function Reports() {
                   </tr>
                 ))}
               </tbody>
+              {tableData.length > 0 && (
+                <tfoot className="bg-slate-50 dark:bg-slate-800/50 border-t-2 border-slate-300 dark:border-slate-600">
+                  <tr className="font-bold text-xs">
+                    <td className="p-3 text-right text-gray-700 dark:text-gray-300">Grand Total</td>
+                    <td className="p-3 text-center text-gray-700 dark:text-gray-300">{tableData.reduce((s, r) => s + r.bills, 0)}</td>
+                    {!['item', 'brand', 'category', 'size'].includes(groupBy) && (
+                      <>
+                        <td className="p-3 text-center text-gray-700 dark:text-gray-300">{tableData.reduce((s, r) => s + r.customers, 0)}</td>
+                        <td className="p-3 text-right text-green-600 dark:text-green-400">₹{tableData.reduce((s, r) => s + r.upi, 0).toLocaleString()}</td>
+                        <td className="p-3 text-right text-amber-600 dark:text-amber-400">₹{tableData.reduce((s, r) => s + r.cash, 0).toLocaleString()}</td>
+                        <td className="p-3 text-right text-blue-500 dark:text-blue-400">₹{tableData.reduce((s, r) => s + r.card, 0).toLocaleString()}</td>
+                        <td className="p-3 text-right text-red-500 dark:text-red-400">₹{tableData.reduce((s, r) => s + r.returns, 0).toLocaleString()}</td>
+                      </>
+                    )}
+                    {['item', 'brand', 'category', 'size'].includes(groupBy) && (
+                      <td className="p-3 text-center text-blue-600 dark:text-blue-400">{tableData.reduce((s, r) => s + r.qty, 0)}</td>
+                    )}
+                    <td className={clsx("p-3 text-right", tableData.reduce((s, r) => s + r.amount, 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400")}>
+                      ₹{Math.abs(tableData.reduce((s, r) => s + r.amount, 0)).toLocaleString()}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

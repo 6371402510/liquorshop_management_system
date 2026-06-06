@@ -9,6 +9,7 @@ class SaleItemBase(BaseModel):
     unit_price: float
     discount: float = 0.0
     total_price: float
+    company_id: Optional[int] = None # ─── ADDED
 
 class SaleItemCreate(SaleItemBase):
     pass
@@ -21,6 +22,7 @@ class SaleItemResponse(SaleItemBase):
 
 class SaleBase(BaseModel):
     invoice_number: str
+    company_id: Optional[int] = None # ─── ADDED
     customer_name: Optional[str] = "Walk-in Customer"
     customer_phone: Optional[str] = None
     total_amount: float
@@ -29,7 +31,6 @@ class SaleBase(BaseModel):
 class SaleCreate(SaleBase):
     items: List[SaleItemCreate]
 
-# ─── CHANGED: Added items list to response ───
 class SaleResponse(SaleBase):
     id: int
     status: str

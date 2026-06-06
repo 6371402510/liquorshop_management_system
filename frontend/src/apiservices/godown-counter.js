@@ -1,8 +1,13 @@
 const API_BASE = 'http://127.0.0.1:8000'
 
-export const getGodownProducts = async (search = '') => {
+export const getGodownProducts = async (companyId = null, search = '') => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/api/godown/products?search=${search}`, {
+  
+  // ─── ADDED COMPANY_ID QUERY PARAM ───
+  let url = `${API_BASE}/api/godown/products?search=${search}`
+  if (companyId) url += `&company_id=${companyId}`
+
+  const res = await fetch(url, {
     method: 'GET',
     headers: {
       'accept': 'application/json',
@@ -29,9 +34,12 @@ export const processGodownCheckout = async (saleData) => {
   return data
 }
 
-export const getGodownSales = async (dateFrom = '', dateTo = '') => {
+export const getGodownSales = async (companyId = null, dateFrom = '', dateTo = '') => {
   const token = localStorage.getItem('token')
   const params = new URLSearchParams()
+  
+  // ─── ADDED COMPANY_ID QUERY PARAM ───
+  if (companyId) params.append('company_id', companyId)
   if (dateFrom) params.append('date_from', dateFrom)
   if (dateTo) params.append('date_to', dateTo)
 

@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
-import { Search, Calendar, IndianRupee, Loader2, AlertCircle, Briefcase, Users, FileDown } from 'lucide-react'
+import { Search, Calendar, IndianRupee, Loader2, AlertCircle, Briefcase, Users, FileDown, Store } from 'lucide-react'
 import clsx from 'clsx'
 
 import { getEmployees } from '../apiservices/employeeapi'
 import { getMonthlyReport } from '../apiservices/attendanceapi'
 
 export default function SalaryReport() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [employees, setEmployees] = useState([])
   const [attendanceData, setAttendanceData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -14,18 +18,41 @@ export default function SalaryReport() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [search, setSearch] = useState('')
 
+  // ─── Listen for company changes ───
   useEffect(() => {
+    const handleStorage = () => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }
+    window.addEventListener('storage', handleStorage)
+    const interval = setInterval(() => {
+      const newId = localStorage.getItem('selectedCompanyId') || null
+      if (newId !== companyId) setCompanyId(newId)
+    }, 1000)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      clearInterval(interval)
+    }
+  }, [companyId])
+
+  // ─── Fetch data when month or company changes ───
+  useEffect(() => {
+    if (!companyId) {
+      setEmployees([])
+      setAttendanceData([])
+      setLoading(false)
+      return
+    }
     fetchData()
-  }, [selectedMonth])
+  }, [selectedMonth, companyId])
 
   const fetchData = async () => {
     setLoading(true)
     setError('')
     try {
-      // Fetch both employees and monthly attendance simultaneously
       const [empData, attData] = await Promise.all([
-        getEmployees(),
-        getMonthlyReport(selectedMonth)
+        getEmployees(Number(companyId)),
+        getMonthlyReport(selectedMonth, Number(companyId))
       ])
       setEmployees(empData || [])
       setAttendanceData(attData || [])
@@ -38,13 +65,9 @@ export default function SalaryReport() {
 
   // Combine Employee Data with Attendance Data and Calculate Salary
   const reportData = employees.map(emp => {
-    // Find the attendance record for this employee for the selected month
     const attRecord = attendanceData.find(a => a.employee_id === emp.id)
-    
-    // Get working days (defaults to 0 if no attendance marked)
     const workingDays = attRecord ? attRecord.total_working_days : 0
     
-    // Calculations
     const baseSalary = emp.salary || 0
     const perDaySalary = baseSalary / 30
     const calculatedSalary = perDaySalary * workingDays
@@ -80,8 +103,32 @@ export default function SalaryReport() {
     }).format(value)
   }
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to view salary reports.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {/* Header with Company Badge */}
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+          <IndianRupee className="w-5 h-5 text-primary-500" />
+          Salary Report
+        </h2>
+        {/* ─── COMPANY BADGE ─── */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+          <Store className="w-3.5 h-3.5 text-primary-500" />
+          <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+        </div>
+      </div>
+
       {/* Toolbar */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
         <div className="flex flex-wrap gap-2 flex-1">

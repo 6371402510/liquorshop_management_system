@@ -1,3 +1,5 @@
+# employees/schema.py
+
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
@@ -5,6 +7,7 @@ from datetime import datetime
 class EmployeeBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
+    company_id: int  # ← ADDED
     employee_code: str
     first_name: str
     last_name: str
@@ -34,7 +37,6 @@ class EmployeeCreate(EmployeeBase):
     pass
 
 class EmployeeUpdate(BaseModel):
-    # All fields optional for update
     employee_code: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None

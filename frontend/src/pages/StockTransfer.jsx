@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, X, Loader as Loader2, Trash2, Save, Search, Warehouse, AlertCircle } from 'lucide-react'
+import { Plus, X, Loader as Loader2, Trash2, Save, Search, Warehouse, AlertCircle, Store } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 
@@ -12,6 +12,10 @@ function generateTransferNumber() {
 }
 
 export default function StockTransfer() {
+  // ─── COMPANY ID FROM LOCAL STORAGE ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
+
   const [transfers, setTransfers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -31,8 +35,8 @@ export default function StockTransfer() {
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
-    fetchTransfers()
-  }, [])
+    if (companyId) fetchTransfers()
+  }, [companyId])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -47,7 +51,8 @@ export default function StockTransfer() {
   const fetchTransfers = async () => {
     setLoading(true)
     try {
-      const data = await getStockTransfers()
+      // ─── PASS COMPANY ID ───
+      const data = await getStockTransfers(Number(companyId))
       setTransfers(data || [])
     } catch (err) {
       setError(err.message)
@@ -63,7 +68,6 @@ export default function StockTransfer() {
       setIsSearching(true)
       try {
         const results = await searchProducts(val)
-        // Only show products that have stock in the godown
         const availableResults = results.filter(p => (p.godown_stock || 0) > 0)
         setSearchResults(availableResults)
         setShowDropdown(availableResults.length > 0)
@@ -90,7 +94,6 @@ export default function StockTransfer() {
     if (transferQty <= 0) return alert('Quantity must be greater than 0')
     if (transferQty > selectedProduct.godown_stock) return alert(`Only ${selectedProduct.godown_stock} available in godown`)
 
-    // Check if product is already in the list
     const exists = items.find(i => i.product_id === selectedProduct.id)
     if (exists) return alert('Product already added to the list. Remove it first to change quantity.')
 
@@ -101,7 +104,6 @@ export default function StockTransfer() {
       available: selectedProduct.godown_stock
     }])
 
-    // Reset search
     setSelectedProduct(null)
     setSearchQuery('')
     setTransferQty(1)
@@ -120,11 +122,13 @@ export default function StockTransfer() {
 
     const payload = {
       transfer_number: generateTransferNumber(),
+      company_id: Number(companyId), // ─── INJECT COMPANY ID ───
       notes,
       items: items.map(item => ({
         product_id: item.product_id,
         product_name: item.product_name,
-        quantity: item.quantity
+        quantity: item.quantity,
+        company_id: Number(companyId) // ─── INJECT COMPANY ID ───
       }))
     }
 
@@ -144,10 +148,28 @@ export default function StockTransfer() {
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0)
 
+  // ─── GUARD: NO COMPANY SELECTED ───
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to view and create stock transfers.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Godown to Counter Transfer</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Godown to Counter Transfer</h2>
+          {/* ─── COMPANY BADGE ─── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+            <Store className="w-3.5 h-3.5 text-primary-500" />
+            <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
+          </div>
+        </div>
         <button onClick={() => setShowForm(s => !s)} className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" /> New Transfer
         </button>

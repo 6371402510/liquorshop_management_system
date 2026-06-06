@@ -1,8 +1,15 @@
 const API_BASE = 'http://127.0.0.1:8000'
 
-export const getProducts = async () => {
+export const getProducts = async (companyId = null) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/products/`, {
+  
+  // ─── ADD COMPANY_ID QUERY PARAM ───
+  let url = `${API_BASE}/products/`
+  if (companyId) {
+    url += `?company_id=${companyId}`
+  }
+
+  const res = await fetch(url, {
     method: 'GET',
     headers: {
       'accept': 'application/json',
@@ -12,6 +19,7 @@ export const getProducts = async () => {
   if (!res.ok) throw new Error('Failed to fetch products')
   return res.json()
 }
+
 
 export const createProduct = async (productData) => {
   const token = localStorage.getItem('token')

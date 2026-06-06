@@ -6,6 +6,7 @@ class TransferItemBase(BaseModel):
     product_id: int
     product_name: str
     quantity: int
+    company_id: Optional[int] = None
 
 class TransferItemCreate(TransferItemBase):
     pass
@@ -18,6 +19,7 @@ class TransferItemResponse(TransferItemBase):
 
 class StockTransferBase(BaseModel):
     transfer_number: str
+    company_id: Optional[int] = None
     notes: Optional[str] = None
 
 class StockTransferCreate(StockTransferBase):

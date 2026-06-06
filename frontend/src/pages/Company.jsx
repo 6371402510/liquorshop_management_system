@@ -63,8 +63,15 @@ export default function Companies() {
     setCurrentCompany(prev => ({ ...prev, [key]: value }))
   }
 
-  const handleOpenDashboard = (company) => {
+   const handleOpenDashboard = (company) => {
+    // 1. Store Company ID and Name separately for Inventory & other modules to read
+    localStorage.setItem('selectedCompanyId', String(company.id))
+    localStorage.setItem('selectedCompanyName', company.companyName)
+    
+    // 2. (Optional) Keep the full object stored as well if you use it elsewhere
     localStorage.setItem('selectedCompany', JSON.stringify(company))
+    
+    // 3. Navigate to the dashboard
     navigate(`/dashboard/${company.id}`)
   }
 

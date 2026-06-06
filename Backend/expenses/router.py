@@ -1,3 +1,5 @@
+# expenses/router.py
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -18,18 +20,22 @@ expense_router = APIRouter(
 
 @expense_router.get("/", response_model=List[ExpenseResponse])
 def list_expenses(
-    start_date: Optional[date] = Query(None, description="Filter from date (YYYY-MM-DD)"),
-    end_date: Optional[date] = Query(None, description="Filter to date (YYYY-MM-DD)"),
+    company_id: int = Query(..., description="Company ID is required"),  # ← ADDED (required)
+    start_date: Optional[date] = Query(None, description="Filter from date"),
+    end_date: Optional[date] = Query(None, description="Filter to date"),
     skip: int = 0, 
     limit: int = 1000, 
     db: Session = Depends(get_db)
 ):
-    """Get all expenses, optionally filtered by date range"""
-    return get_expenses(db, skip=skip, limit=limit, start_date=start_date, end_date=end_date)
+    return get_expenses(db, company_id=company_id, skip=skip, limit=limit, start_date=start_date, end_date=end_date)
 
 @expense_router.get("/{expense_id}", response_model=ExpenseResponse)
-def read_expense(expense_id: int, db: Session = Depends(get_db)):
-    expense = get_expense(db, expense_id)
+def read_expense(
+    expense_id: int, 
+    company_id: int = Query(..., description="Company ID"),  # ← ADDED
+    db: Session = Depends(get_db)
+):
+    expense = get_expense(db, expense_id, company_id)
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
     return expense
@@ -42,15 +48,24 @@ def create_new_expense(expense_data: ExpenseCreate, db: Session = Depends(get_db
     return expense
 
 @expense_router.put("/{expense_id}", response_model=ExpenseResponse)
-def update_existing_expense(expense_id: int, expense_data: ExpenseUpdate, db: Session = Depends(get_db)):
-    expense = update_expense(db, expense_id, expense_data)
+def update_existing_expense(
+    expense_id: int, 
+    expense_data: ExpenseUpdate, 
+    company_id: int = Query(..., description="Company ID"),  # ← ADDED
+    db: Session = Depends(get_db)
+):
+    expense = update_expense(db, expense_id, expense_data, company_id)
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found or update failed")
     return expense
 
 @expense_router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_existing_expense(expense_id: int, db: Session = Depends(get_db)):
-    success = delete_expense(db, expense_id)
+def delete_existing_expense(
+    expense_id: int, 
+    company_id: int = Query(..., description="Company ID"),  # ← ADDED
+    db: Session = Depends(get_db)
+):
+    success = delete_expense(db, expense_id, company_id)
     if not success:
         raise HTTPException(status_code=404, detail="Expense not found")
     return
@@ -62,22 +77,29 @@ category_router = APIRouter(
 )
 
 @category_router.get("/", response_model=List[CategoryResponse])
-def list_categories(db: Session = Depends(get_db)):
-    """Get all categories"""
-    return get_categories(db)
+def list_categories(
+    company_id: int = Query(..., description="Company ID is required"),  # ← ADDED
+    db: Session = Depends(get_db)
+):
+    return get_categories(db, company_id)
 
 @category_router.post("/", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
 def add_category(category_data: CategoryCreate, db: Session = Depends(get_db)):
-    """Add a new custom category"""
     try:
         return create_category(db, category_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @category_router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_category(category_id: int, db: Session = Depends(get_db)):
-    """Delete a category"""
-    success = delete_category(db, category_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Category not found")
+def remove_category(
+    category_id: int, 
+    company_id: int = Query(..., description="Company ID"),  # ← ADDED
+    db: Session = Depends(get_db)
+):
+    try:
+        success = delete_category(db, category_id, company_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Category not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return

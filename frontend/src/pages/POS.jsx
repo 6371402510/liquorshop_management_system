@@ -3,7 +3,7 @@ import {
   Search, Barcode, Plus, Minus, Trash2, ShoppingCart,
   Printer, CheckCircle, X, Loader2, CreditCard, Banknote,
   Smartphone, Send, Package, Tag, Hash, Calendar, Layers, Download,
-  AlertCircle
+  AlertCircle,Store
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format } from 'date-fns';
@@ -21,6 +21,8 @@ function generateScanId(productId) {
 
 export default function POS() {
   // ─── PERSISTED STATE: Load from localStorage or use defaults ───
+  const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
+  const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
   const [products, setProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
   
@@ -85,12 +87,13 @@ export default function POS() {
   useEffect(() => { localStorage.setItem('pos_customerPhone', JSON.stringify(customerPhone)); }, [customerPhone]);
   useEffect(() => { localStorage.setItem('pos_discount', JSON.stringify(discount)); }, [discount]);
 
-  useEffect(() => { fetchProducts(); }, []);
+ useEffect(() => { if (companyId) fetchProducts(); }, [companyId]);
 
   const fetchProducts = async (searchTerm = '') => {
     setLoadingProducts(true);
     try {
-      const data = await getPosProducts(searchTerm);
+      // ─── PASS COMPANY ID ───
+      const data = await getPosProducts(companyId, searchTerm);
       setProducts(data || []);
       setFilteredProducts(data || []);
     } catch (err) {
@@ -189,10 +192,11 @@ export default function POS() {
       for (const item of cart) {
         const payload = {
           invoice_number: generateInvoiceNumber(),
+          company_id: Number(companyId), // ─── INJECT COMPANY ID ───
           customer_name: customerName,
           customer_phone: customerPhone,
           total_amount: item.sale_price - (item.discount || 0),
-          payment_mode: item.paymentMode || 'CASH', // Use item-specific payment mode
+          payment_mode: item.paymentMode || 'CASH',
           items: [{
             product_id: item.productId,
             product_name: item.name,
@@ -200,6 +204,7 @@ export default function POS() {
             unit_price: item.sale_price,
             discount: item.discount || 0,
             total_price: item.sale_price - (item.discount || 0),
+            company_id: Number(companyId) // ─── INJECT COMPANY ID ───
           }],
         };
         await processCheckout(payload);
@@ -263,10 +268,11 @@ export default function POS() {
       for (const item of itemsToPrint) {
         const payload = {
           invoice_number: generateInvoiceNumber(),
+          company_id: Number(companyId), // ─── INJECT COMPANY ID ───
           customer_name: cName,
           customer_phone: cPhone === 'N/A' ? '' : cPhone,
           total_amount: item.sale_price - (item.discount || 0),
-          payment_mode: item.paymentMode || 'CASH', // Use item-specific payment mode
+          payment_mode: item.paymentMode || 'CASH',
           items: [{
             product_id: item.productId,
             product_name: item.name,
@@ -274,11 +280,11 @@ export default function POS() {
             unit_price: item.sale_price,
             discount: item.discount || 0,
             total_price: item.sale_price - (item.discount || 0),
+            company_id: Number(companyId) // ─── INJECT COMPANY ID ───
           }],
         };
         await processCheckout(payload);
       }
-
       const printGroups = {};
       let totalAmount = 0;
       itemsToPrint.forEach(item => {
@@ -517,6 +523,17 @@ export default function POS() {
       </div>
     );
   }
+
+  if (!companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">No Company Selected</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">Please select a company to use the Point of Sale.</p>
+      </div>
+    );
+  }
+
 
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50 dark:bg-gray-950 overflow-hidden relative">
