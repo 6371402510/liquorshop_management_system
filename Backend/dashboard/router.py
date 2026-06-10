@@ -14,6 +14,7 @@ router = APIRouter(
 @router.get("/", response_model=schema.DashboardResponse)
 def fetch_dashboard_data(
     company_id: Optional[int] = Query(None, description="Filter by Company ID"),
+    date: Optional[str] = Query(None, description="Target date YYYY-MM-DD"), # ← ADDED
     db: Session = Depends(get_db)
 ):
     """
@@ -31,4 +32,4 @@ def fetch_dashboard_data(
             status_code=400,
             detail="company_id query parameter is required"
         )
-    return service.get_dashboard_data(db, company_id=company_id)
+    return service.get_dashboard_data(db, company_id=company_id, target_date_str=date)

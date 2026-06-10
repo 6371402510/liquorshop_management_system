@@ -1,37 +1,38 @@
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASE = import.meta.env.VITE_API_BASE
 
 export const getProducts = async (companyId = null) => {
   const token = localStorage.getItem('token')
-  
-  // ─── ADD COMPANY_ID QUERY PARAM ───
-  let url = `${API_BASE}/products/`
-  if (companyId) {
-    url += `?company_id=${companyId}`
-  }
+
+  const params = new URLSearchParams()
+  if (companyId) params.append('company_id', companyId)
+
+  const url = `${API_BASE}/products/?${params.toString()}`
 
   const res = await fetch(url, {
     method: 'GET',
     headers: {
-      'accept': 'application/json',
-      'Authorization': `Bearer ${token}`
-    }
+      accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
   })
+
   if (!res.ok) throw new Error('Failed to fetch products')
   return res.json()
 }
 
-
 export const createProduct = async (productData) => {
   const token = localStorage.getItem('token')
+
   const res = await fetch(`${API_BASE}/products/`, {
     method: 'POST',
     headers: {
-      'accept': 'application/json',
+      accept: 'application/json',
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(productData)
+    body: JSON.stringify(productData),
   })
+
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || 'Failed to create product')
   return data
@@ -39,15 +40,17 @@ export const createProduct = async (productData) => {
 
 export const updateProduct = async (id, productData) => {
   const token = localStorage.getItem('token')
+
   const res = await fetch(`${API_BASE}/products/${id}`, {
     method: 'PUT',
     headers: {
-      'accept': 'application/json',
+      accept: 'application/json',
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(productData)
+    body: JSON.stringify(productData),
   })
+
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || 'Failed to update product')
   return data
@@ -55,26 +58,48 @@ export const updateProduct = async (id, productData) => {
 
 export const deleteProduct = async (id) => {
   const token = localStorage.getItem('token')
+
   const res = await fetch(`${API_BASE}/products/${id}`, {
     method: 'DELETE',
     headers: {
-      'accept': 'application/json',
-      'Authorization': `Bearer ${token}`
-    }
+      accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
   })
+
   if (!res.ok) throw new Error('Failed to delete product')
   return true
 }
 
 export const searchProducts = async (query) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`${API_BASE}/products/search/?q=${query}`, {
+
+  const res = await fetch(
+    `${API_BASE}/products/search/?q=${query}`,
+    {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  )
+
+  if (!res.ok) throw new Error('Failed to search products')
+  return res.json()
+}
+
+export const getProductById = async (id) => {
+  const token = localStorage.getItem('token')
+
+  const res = await fetch(`${API_BASE}/products/${id}`, {
     method: 'GET',
     headers: {
-      'accept': 'application/json',
-      'Authorization': `Bearer ${token}`
-    }
+      accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
   })
-  if (!res.ok) throw new Error('Failed to search products')
+
+  if (!res.ok) throw new Error('Failed to fetch product')
   return res.json()
 }

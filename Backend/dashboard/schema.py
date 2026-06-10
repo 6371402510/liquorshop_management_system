@@ -2,8 +2,6 @@ from pydantic import BaseModel
 from datetime import datetime, date
 from typing import List, Optional
 
-
-# ─── Stats ───
 class DashboardStats(BaseModel):
     todaySales: float = 0
     todayOrders: int = 0
@@ -14,9 +12,10 @@ class DashboardStats(BaseModel):
     monthPurchases: float = 0
     monthExpenses: float = 0
     totalEmployees: int = 0
+    totalBottlesInStock: int = 0     # NEW
+    totalBottlesSold: int = 0        # NEW
+    totalBottlesPurchased: int = 0   # NEW
 
-
-# ─── Charts ───
 class DailySale(BaseModel):
     date: str
     sales: float
@@ -29,8 +28,6 @@ class CategoryData(BaseModel):
     name: str
     value: int
 
-
-# ─── Lists ───
 class RecentSale(BaseModel):
     id: int
     invoice_number: str
@@ -38,11 +35,10 @@ class RecentSale(BaseModel):
     total_amount: float
     payment_mode: str
     created_at: datetime
-    type: str = "COUNTER"  # ← ADDED: "COUNTER" or "GODOWN"
+    type: str = "COUNTER"
 
     class Config:
         from_attributes = True
-
 
 class RecentPurchase(BaseModel):
     id: int
@@ -54,7 +50,6 @@ class RecentPurchase(BaseModel):
 
     class Config:
         from_attributes = True
-
 
 class LowStockItem(BaseModel):
     id: int
@@ -68,13 +63,26 @@ class LowStockItem(BaseModel):
     class Config:
         from_attributes = True
 
-
 class ExpenseBreakdown(BaseModel):
     category: str
     total_amount: float
 
+# ─── NEW SCHEMAS ───
+class PaymentModeBreakdown(BaseModel):
+    mode: str
+    total_amount: float
 
-# ─── Main Response ───
+class TopSellingBrand(BaseModel):
+    brand: str
+    bottles_sold: int
+
+class ExciseSummary(BaseModel):
+    stock_bl: float
+    stock_lpl: float
+    sold_bl: float
+    sold_lpl: float
+# ─── END NEW SCHEMAS ───
+
 class DashboardResponse(BaseModel):
     stats: DashboardStats
     dailySales: List[DailySale]
@@ -84,3 +92,6 @@ class DashboardResponse(BaseModel):
     recentSales: List[RecentSale]
     recentPurchases: List[RecentPurchase]
     lowStockItems: List[LowStockItem]
+    paymentModeBreakdown: List[PaymentModeBreakdown]   # NEW
+    topSellingBrands: List[TopSellingBrand]            # NEW
+    exciseSummary: ExciseSummary                       # NEW

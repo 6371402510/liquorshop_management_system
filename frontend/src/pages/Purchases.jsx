@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 // Import API functions
 import { getPurchases, createPurchase, getPurchaseItems } from '../apiservices/purchasesapi'
 import { getSuppliers } from '../apiservices/supplierapi'
-import { searchProducts, createProduct ,updateProduct} from '../apiservices/inventoryapi'
+import { searchProducts, createProduct, updateProduct, getProductById } from '../apiservices/inventoryapi'
 
 // ─────────────────────────────────────────────────────────────
 // 1. INVENTORY CONSTANTS & HELPERS
@@ -32,7 +32,7 @@ const DEFAULT_SUB_CATEGORIES = ['PREMIUM', 'SUPER PREMIUM', 'ULTRA PREMIUM', 'RE
 const PRODUCT_TYPES = ['IMFL', 'BEER', 'WINE', 'COUNTRY LIQUOR']
 
 const BOTTLE_SIZES_BY_TYPE = {
-  'IMFL': ['90ml', '180ml', '250ml', '330ml', '375ml', '500ml', '750ml', '1000ml'],
+  'IMFL': ['90ml', '180ml','200ml', '250ml', '330ml', '375ml', '500ml', '750ml', '1000ml'],
   'BEER': ['275ml', '330ml', '500ml', '650ml'],
   'WINE': ['375ml', '500ml', '750ml', '1000ml', '2000ml'],
   'COUNTRY LIQUOR': ['200ml', '300ml', '500ml', '750ml'],
@@ -40,18 +40,19 @@ const BOTTLE_SIZES_BY_TYPE = {
 const DEFAULT_SIZES = BOTTLE_SIZES_BY_TYPE['IMFL']
 
 const SIZE_TRADITIONAL_MAP = {
-  '90ml':   { traditionalName: 'Peg / Miniature', bottlesPerCase: 96 },
-  '180ml':  { traditionalName: 'Nip / Quarter',   bottlesPerCase: 48 },
-  '250ml':  { traditionalName: 'Quarter Plus',    bottlesPerCase: 36 },
-  '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 24 },
-  '300ml':  { traditionalName: 'Half Plus',       bottlesPerCase: 30 },
-  '330ml':  { traditionalName: 'Small / Pony',    bottlesPerCase: 30 },
-  '375ml':  { traditionalName: 'Pint / Half',     bottlesPerCase: 24 },
-  '500ml':  { traditionalName: 'Medium',          bottlesPerCase: 24 },
-  '650ml':  { traditionalName: 'Large Beer',      bottlesPerCase: 12 },
-  '750ml':  { traditionalName: 'Quart / Bottle',  bottlesPerCase: 12 },
-  '1000ml': { traditionalName: 'Liter',           bottlesPerCase: 9 },
-  '2000ml': { traditionalName: 'Double Liter',    bottlesPerCase: 6 },
+  '90ml': { traditionalName: 'Peg / Miniature', bottlesPerCase: 96 },
+  '180ml': { traditionalName: 'Nip / Quarter', bottlesPerCase: 48 },
+  '200ml': { traditionalName: 'Nip + / Quarter+', bottlesPerCase: 24 },
+  '250ml': { traditionalName: 'Quarter Plus', bottlesPerCase: 36 },
+  '275ml': { traditionalName: 'Small Bottle', bottlesPerCase: 24 },
+  '300ml': { traditionalName: 'Half Plus', bottlesPerCase: 30 },
+  '330ml': { traditionalName: 'Small / Pony', bottlesPerCase: 30 },
+  '375ml': { traditionalName: 'Pint / Half', bottlesPerCase: 24 },
+  '500ml': { traditionalName: 'Medium', bottlesPerCase: 24 },
+  '650ml': { traditionalName: 'Large Beer', bottlesPerCase: 12 },
+  '750ml': { traditionalName: 'Quart / Bottle', bottlesPerCase: 12 },
+  '1000ml': { traditionalName: 'Liter', bottlesPerCase: 9 },
+  '2000ml': { traditionalName: 'Double Liter', bottlesPerCase: 6 },
 }
 
 const UNITS = ['BOTTLE', 'CASE', 'BOX', 'PACK', 'CARTON', 'PINT', 'QUARTER', 'CAN']
@@ -66,7 +67,7 @@ const emptyProductForm = {
   unit: 'BOTTLE',
   packing_type: 'BOTTLE', purchase_rate: '', landing_cost: '', mrp: '', sale_price: '',
   discount_allowed: false, discount_percent: '', VAT_rate: '35',
-  margin_percent: '', hsn_code: '2208', opening_stock: '', current_stock: '',
+  margin_percent: '', hsn_code: '', opening_stock: '', current_stock: '',
   godown_stock: '', counter_stock: '',
   reorder_level: '5', maximum_stock: '', damage_stock: '0', reserved_stock: '0',
   stock_location: '', batch_number: '', expiry_date: '', manufacture_date: '',
@@ -320,7 +321,7 @@ const ProductModal = ({ isOpen, onClose, onSaveSuccess }) => {
 // ─────────────────────────────────────────────────────────────
 
 const SIZE_BOTTLES_MAP = {
-  '90ml': 96, '180ml': 48, '250ml': 36, '275ml': 24, '300ml': 30,
+  '90ml': 96, '180ml': 48,'200ml': 24, '250ml': 36, '275ml': 24, '300ml': 30,
   '330ml': 30, '375ml': 24, '500ml': 24, '650ml': 12, '750ml': 12,
   '1000ml': 9, '2000ml': 6,
 }
@@ -497,10 +498,11 @@ export default function Purchases() {
         const bpc = Number(prev.bottlesPerCase) || 0
         if (cases > 0 && bpc > 0) {
           updated.totalQty = cases * bpc
-          updated.openingStock = cases * bpc
+          // REMOVED: updated.openingStock = cases * bpc
+          // Opening stock now comes from inventory, not from purchase qty
         } else if (cases === 0) {
           updated.totalQty = 0
-          updated.openingStock = 0
+          // REMOVED: updated.openingStock = 0
         }
       }
       if (key === 'bottlesPerCase') {
@@ -508,7 +510,7 @@ export default function Purchases() {
         const bpc = Number(val) || 0
         if (cases > 0 && bpc > 0) {
           updated.totalQty = cases * bpc
-          updated.openingStock = cases * bpc
+          // REMOVED: updated.openingStock = cases * bpc
         }
       }
 
@@ -524,7 +526,6 @@ export default function Purchases() {
       return updated
     })
   }
-
   const calcLineTotal = (item) => {
     const ratePerCase = Number(item.purchaseRatePerCase) || 0
     const cases = Number(item.qtyCases) || 0
@@ -581,7 +582,7 @@ export default function Purchases() {
     }
   }
 
- const selectProduct = (product) => {
+  const selectProduct = (product) => {
     const bpc = product.bottles_per_case || SIZE_BOTTLES_MAP[product.bottle_size] || 0
     const productType = product.product_type || 'IMFL'
 
@@ -603,6 +604,7 @@ export default function Purchases() {
       mrp: product.mrp || '',
       sellingRate: product.sale_price || '',
       purchaseRatePerCase: autoRatePerCase,  // ← NEW: auto from inventory
+      openingStock: product.current_stock || 0,  // ← NEW: from inventory current_stock
     }
 
     const { qtyBulkLiters, qtyLPLiters } = calculateBLandLPL(0, product.bottle_size || '', productType)
@@ -708,16 +710,24 @@ export default function Purchases() {
           const bpc = Number(item.bottlesPerCase) || 0
           const ratePerCase = Number(item.purchaseRatePerCase) || 0
           const ratePerUnit = bpc > 0 ? ratePerCase / bpc : 0
+          const purchasedQty = Number(item.totalQty) || 0
 
-          if (ratePerUnit > 0) {
-            try {
-              await updateProduct(item.productId, {
-                purchase_rate: ratePerUnit,
-                landing_cost: ratePerUnit,   // also update landing cost
-              })
-            } catch (err) {
-              console.warn(`Failed to update purchase_rate for product ${item.productId}:`, err)
-            }
+          try {
+            const currentProduct = await getProductById(item.productId)
+            const newGodownStock = (Number(currentProduct.godown_stock) || 0) + purchasedQty
+            const newCounterStock = Number(currentProduct.counter_stock) || 0
+            const newCurrentStock = newGodownStock + newCounterStock
+
+            await updateProduct(item.productId, {
+              purchase_rate: ratePerUnit > 0 ? ratePerUnit : currentProduct.purchase_rate,
+              landing_cost: ratePerUnit > 0 ? ratePerUnit : currentProduct.landing_cost,
+              godown_stock: newGodownStock,
+              counter_stock: newCounterStock,
+              current_stock: newCurrentStock,
+              opening_stock: newCurrentStock,
+            })
+          } catch (err) {
+            console.warn(`Failed to update product ${item.productId}:`, err)
           }
         }
       }
@@ -730,7 +740,7 @@ export default function Purchases() {
       fetchPurchases()
     } catch (err) { setError(err.message || 'Failed to save purchase') }
     finally { setSaving(false) }
-  }
+  } // ← ← ← THIS CLOSING BRACE WAS MISSING! It closes `handleSubmit`
 
   const loadItems = async (id) => {
     if (expandedId === id) { setExpandedId(null); return }
@@ -743,7 +753,6 @@ export default function Purchases() {
       setExpandedId(id)
     } catch (err) { alert('Failed to load items') }
   }
-
   const clearFilters = () => {
     setFilterProduct(''); setFilterBrand(''); setFilterCategory('')
     setFilterMrp(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterType('ALL')
@@ -838,33 +847,33 @@ export default function Purchases() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date</label>
+                <label className="block text-md font-semibold text-black-600 dark:text-gray-400 mb-1">Date</label>
                 <input type="date" value={billingDate} onChange={e => setBillingDate(e.target.value)} className="input-field bg-green-50 dark:bg-green-900/10" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Supplier *</label>
+                <label className="block text-md font-semibold text-black-600 dark:text-gray-400 mb-1">Supplier *</label>
                 <select value={selectedSupplier} onChange={e => setSelectedSupplier(e.target.value)} required className="input-field">
                   <option value="">Select supplier</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Invoice Number *</label>
+                <label className="block text-md font-semibold text-black-600 dark:text-gray-400 mb-1">Invoice Number *</label>
                 <div className="relative">
                   <input type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="e.g. INV-20250101-001" className="input-field pr-20" />
                   <button type="button" onClick={() => setInvoiceNumber(generatePurchaseNumber())} className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors">Auto</button>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Invoice Date</label>
+                <label className="block text-md font-semibold text-black-600 dark:text-gray-400 mb-1">Invoice Date</label>
                 <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className="input-field" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Transport Pass No.</label>
+                <label className="block text-md font-semibold text-black-600 dark:text-gray-400 mb-1">Transport Pass No.</label>
                 <input type="text" value={transportPass} onChange={e => setTransportPass(e.target.value)} placeholder="Optional" className="input-field" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Vehicle Number</label>
+                <label className="block text-md font-semibold text-black-600 dark:text-gray-400 mb-1">Vehicle Number</label>
                 <input type="text" value={vehicleNumber} onChange={e => setVehicleNumber(e.target.value)} placeholder="e.g. MH12AB1234" className="input-field" />
               </div>
             </div>
@@ -872,18 +881,25 @@ export default function Purchases() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left: Item Entry Form */}
               <div className="lg:col-span-4 border dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-900">
-                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3 flex items-center gap-2">
-                  <Package className="w-4 h-4 text-blue-500" /> Add New Item
-                </h4>
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-blue-500" />
+                    Add New Item
+                  </h4>
 
-                <button type="button" onClick={() => setShowProductModal(true)} className="w-full mb-4 py-2 px-3 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 text-xs font-medium hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors flex items-center justify-center gap-2">
-                  <Plus className="w-3.5 h-3.5" /> Create New Product
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowProductModal(true)}
+                    className="p-2 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors flex items-center justify-center"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
 
                 <div className="space-y-3 max-h-[550px] overflow-y-auto pr-2">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2 relative" ref={dropdownRef}>
-                      <label className="block text-xs text-gray-500 mb-1">
+                      <label className="block text-md font-semibold text-black-800 mb-1">
                         Scan Barcode / Search Item
                         {barcodeDetected && <span className="ml-2 text-[10px] text-green-500 font-semibold animate-pulse">✓ Barcode found!</span>}
                       </label>
@@ -918,63 +934,80 @@ export default function Purchases() {
                     )}
 
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Item Name *</label>
+                      <label className="block text-md font-semibold text-black-800 mb-1">Item Name *</label>
                       <input type="text" value={currentItem.name} onChange={e => handleItemChange('name', e.target.value)} placeholder="e.g. Royal Stag" className="input-field text-sm" />
                     </div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Brand</label><input type="text" value={currentItem.brand} onChange={e => handleItemChange('brand', e.target.value)} className="input-field text-sm" /></div>
+                    <div><label className="block text-md font-semibold text-black-800 mb-1">Brand</label><input type="text" value={currentItem.brand} onChange={e => handleItemChange('brand', e.target.value)} className="input-field text-sm" /></div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Product Type</label>
+                      <label className="block text-md font-semibold text-black-800 mb-1">Product Type</label>
                       <select value={currentItem.productType} onChange={e => handleItemChange('productType', e.target.value)} className="input-field text-sm">
                         {PRODUCT_TYPES.map(pt => <option key={pt} value={pt}>{pt}</option>)}
                       </select>
                     </div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Category</label><input type="text" value={currentItem.category} onChange={e => handleItemChange('category', e.target.value)} className="input-field text-sm" /></div>
-                    <div><label className="block text-xs text-gray-500 mb-1">MRP (₹) *</label><input type="number" value={currentItem.mrp} onChange={e => handleItemChange('mrp', e.target.value)} className="input-field text-sm" /></div>
+                    <div><label className="block text-md font-semibold text-black-800 mb-1">Category</label><input type="text" value={currentItem.category} onChange={e => handleItemChange('category', e.target.value)} className="input-field text-sm" /></div>
+                    <div><label className="block text-md font-semibold text-black-800 mb-1">MRP (₹) *</label><input type="number" value={currentItem.mrp} onChange={e => handleItemChange('mrp', e.target.value)} className="input-field text-sm" /></div>
 
                     <div>
-  <label className="block text-xs text-gray-500 mb-1">
-    Purchase Rate / Case (₹) *
-    {currentItem.purchaseRatePerCase && Number(currentItem.purchaseRatePerCase) > 0 && currentItem.bottlesPerCase > 0 ? (
-      <span className="ml-1 text-[10px] text-blue-500 font-medium">
-        auto from inventory (₹{(Number(currentItem.purchaseRatePerCase) / currentItem.bottlesPerCase).toFixed(2)}/unit)
-      </span>
-    ) : (
-      <span className="ml-1 text-[10px] text-red-500 font-medium">manual</span>
-    )}
+                      <label className="block text-md font-semibold text-black-800 mb-1">
+                        Purchase Rate / Case (₹) *
+                        {currentItem.purchaseRatePerCase && Number(currentItem.purchaseRatePerCase) > 0 && currentItem.bottlesPerCase > 0 ? (
+                          <span className="ml-1 text-[10px] text-blue-500 font-medium">
+                            auto from inventory (₹{(Number(currentItem.purchaseRatePerCase) / currentItem.bottlesPerCase).toFixed(2)}/unit)
+                          </span>
+                        ) : (
+                          <span className="ml-1 text-[10px] text-red-500 font-medium">manual</span>
+                        )}
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={currentItem.purchaseRatePerCase}
+                        onChange={e => handleItemChange('purchaseRatePerCase', e.target.value)}
+                        className={clsx(
+                          "input-field text-sm font-semibold",
+                          currentItem.purchaseRatePerCase && Number(currentItem.purchaseRatePerCase) > 0 && currentItem.bottlesPerCase > 0
+                            ? "border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-900/20"
+                            : "border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/20"
+                        )}
+                        placeholder="Enter per case or auto-filled"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-md font-semibold text-black-800 mb-1">Rate / Unit (Bottle) ₹ <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span></label>
+                      <input type="text" value={currentRatePerUnit > 0 ? `₹${currentRatePerUnit.toFixed(2)}` : '—'} readOnly className="input-field text-sm font-semibold bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 cursor-not-allowed" />
+                    </div>
+                    <div><label className="block text-md font-semibold text-black-800 mb-1">Selling Rate (₹) *</label><input type="number" min="0" step="0.01" value={currentItem.sellingRate} onChange={e => handleItemChange('sellingRate', e.target.value)} className="input-field text-sm" /></div>
+
+                    <div>
+  <label className="block text-md font-semibold text-black-800 mb-1">
+    Qty in Cases 
+    {currentItem.bottlesPerCase > 0 && <span className="ml-1 text-[10px] text-blue-500">×{currentItem.bottlesPerCase} btls</span>}
   </label>
-  <input
-    type="number"
-    min="0"
-    step="0.01"
-    value={currentItem.purchaseRatePerCase}
-    onChange={e => handleItemChange('purchaseRatePerCase', e.target.value)}
-    className={clsx(
-      "input-field text-sm font-semibold",
-      currentItem.purchaseRatePerCase && Number(currentItem.purchaseRatePerCase) > 0 && currentItem.bottlesPerCase > 0
-        ? "border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-900/20"
-        : "border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/20"
-    )}
-    placeholder="Enter per case or auto-filled"
+  <input 
+    id="qtyCasesInput" 
+    type="number" 
+    min="0" 
+    value={currentItem.qtyCases} 
+    onChange={e => handleItemChange('qtyCases', e.target.value)} 
+    onKeyDown={e => {
+      if (e.key === 'Enter') {
+        e.preventDefault(); // Prevent form submission
+        addItemToTable();   // Add item to the right-side table
+      }
+    }}
+    className="input-field text-sm" 
+    placeholder="0" 
   />
 </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Rate / Unit (Bottle) ₹ <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span></label>
-                      <input type="text" value={currentRatePerUnit > 0 ? `₹${currentRatePerUnit.toFixed(2)}` : '—'} readOnly className="input-field text-sm font-semibold bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 cursor-not-allowed" />
-                    </div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Selling Rate (₹) *</label><input type="number" min="0" step="0.01" value={currentItem.sellingRate} onChange={e => handleItemChange('sellingRate', e.target.value)} className="input-field text-sm" /></div>
-
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Qty in Cases {currentItem.bottlesPerCase > 0 && <span className="ml-1 text-[10px] text-blue-500">×{currentItem.bottlesPerCase} btls</span>}</label>
-                      <input id="qtyCasesInput" type="number" min="0" value={currentItem.qtyCases} onChange={e => handleItemChange('qtyCases', e.target.value)} className="input-field text-sm" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Total Qty (Bottles) {isTotalQtyAuto ? <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span> : <span className="ml-1 text-[10px] text-amber-500 font-medium">manual</span>}</label>
+                      <label className="block text-md font-semibold text-black-800 mb-1">Total Qty (Bottles) {isTotalQtyAuto ? <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span> : <span className="ml-1 text-[10px] text-amber-500 font-medium">manual</span>}</label>
                       <input type="number" min="0" value={currentItem.totalQty} onChange={e => handleItemChange('totalQty', e.target.value)} readOnly={isTotalQtyAuto} className={clsx("input-field text-sm font-semibold", isTotalQtyAuto ? "bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 cursor-not-allowed" : "bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300")} />
                     </div>
 
                     {/* ─── BL (Bulk Liters) — AUTO CALCULATED ─── */}
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
+                      <label className="block text-md font-semibold text-black-800 mb-1">
                         BL (Bulk Liters) <span className="ml-1 text-[10px] text-green-500 font-medium">auto</span>
                       </label>
                       <input
@@ -989,9 +1022,9 @@ export default function Purchases() {
                     </div>
 
                     {/* ─── LPL (LP Liters) — AUTO CALCULATED ─── */}
-                                      
+
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
+                      <label className="block text-md font-semibold text-black-800 mb-1">
                         LPL (LP Liters)
                         {currentItem.productType === 'BEER'
                           ? <span className="ml-1 text-[10px] text-red-500 font-medium">N/A for Beer</span>
@@ -1018,10 +1051,20 @@ export default function Purchases() {
                     </div>
 
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Opening Stock {isTotalQtyAuto && <span className="ml-1 text-[10px] text-green-500">auto</span>}</label>
-                      <input type="number" min="0" value={currentItem.openingStock} onChange={e => handleItemChange('openingStock', e.target.value)} readOnly={isTotalQtyAuto} className={clsx("input-field text-sm", isTotalQtyAuto && "bg-gray-50 dark:bg-gray-800 cursor-not-allowed text-gray-400")} />
+                      <label className="block text-md font-semibold text-black-800 mb-1">
+                        Opening Stock
+                        <span className="ml-1 text-[10px] text-blue-500 font-medium">from inventory</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={currentItem.openingStock}
+                        onChange={e => handleItemChange('openingStock', e.target.value)}
+                        className="input-field text-sm font-semibold bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 cursor-not-allowed"
+                        readOnly
+                      />
                     </div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Min Stock Alert</label><input type="number" value={currentItem.minStock} onChange={e => handleItemChange('minStock', e.target.value)} className="input-field text-sm" /></div>
+                    <div><label className="block text-md font-semibold text-black-800 mb-1">Min Stock Alert</label><input type="number" value={currentItem.minStock} onChange={e => handleItemChange('minStock', e.target.value)} className="input-field text-sm" /></div>
                   </div>
                   <button type="button" onClick={addItemToTable} className="w-full mt-2 flex justify-center items-center gap-2 btn-primary bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">
                     <Plus className="w-4 h-4" /> Add to List
@@ -1102,8 +1145,8 @@ export default function Purchases() {
               <div className="w-full sm:w-72 text-sm space-y-2">
                 <div className="flex justify-between items-center font-semibold text-gray-800 dark:text-gray-200"><span>Subtotal</span><span className="w-24 text-right">₹{subtotal.toFixed(2)}</span></div>
                 <div className="flex justify-between items-center text-gray-500 dark:text-gray-400"><div className="flex items-center gap-2"><span className="w-16">VAT</span><input type="number" value={purchaseVat} onChange={e => setPurchaseVat(e.target.value)} className="w-14 input-field text-xs py-0.5 text-right" /><span>%</span></div><span className="w-24 text-right">₹{vatTotal.toFixed(2)}</span></div>
-                <div className="flex justify-between items-center text-gray-500 dark:text-gray-400"><div className="flex items-center gap-2"><span className="w-16">CESS</span><input type="number" value={purchaseCess} onChange={e => setPurchaseCess(e.target.value)} className="w-14 input-field text-xs py-0.5 text-right" /><span>%</span></div><span className="w-24 text-right">₹{cessTotal.toFixed(2)}</span></div>
-                <div className="flex justify-between items-center text-gray-500 dark:text-gray-400"><div className="flex items-center gap-2"><span className="w-16">Special</span><input type="number" value={purchaseSpecial} onChange={e => setPurchaseSpecial(e.target.value)} className="w-14 input-field text-xs py-0.5 text-right" /><span>%</span></div><span className="w-24 text-right">₹{specialTotal.toFixed(2)}</span></div>
+                {/* <div className="flex justify-between items-center text-gray-500 dark:text-gray-400"><div className="flex items-center gap-2"><span className="w-16">CESS</span><input type="number" value={purchaseCess} onChange={e => setPurchaseCess(e.target.value)} className="w-14 input-field text-xs py-0.5 text-right" /><span>%</span></div><span className="w-24 text-right">₹{cessTotal.toFixed(2)}</span></div> */}
+                {/* <div className="flex justify-between items-center text-gray-500 dark:text-gray-400"><div className="flex items-center gap-2"><span className="w-16">Special</span><input type="number" value={purchaseSpecial} onChange={e => setPurchaseSpecial(e.target.value)} className="w-14 input-field text-xs py-0.5 text-right" /><span>%</span></div><span className="w-24 text-right">₹{specialTotal.toFixed(2)}</span></div> */}
                 <div className="flex justify-between items-center text-gray-500 dark:text-gray-400"><div className="flex items-center gap-2"><span className="w-16">TCS</span><input type="number" value={purchaseTcs} onChange={e => setPurchaseTcs(e.target.value)} className="w-14 input-field text-xs py-0.5 text-right" /><span>%</span></div><span className="w-24 text-right">₹{tcsTotal.toFixed(2)}</span></div>
                 <div className="flex justify-between items-center border-t border-gray-200 dark:border-gray-700 pt-2 font-bold text-base text-gray-800 dark:text-gray-200"><span>Grand Total</span><span className="w-24 text-right">₹{total.toFixed(2)}</span></div>
               </div>

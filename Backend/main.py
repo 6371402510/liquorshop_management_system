@@ -17,6 +17,7 @@ from sales_godown.router import router as sales_godown_router
 from expenses.router import expense_router, category_router
 from employee_attendance.router import router as attendance_router
 from dashboard.router import router as dashboard_router
+from admin_dashboard.router import router as admin_dashboard_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -31,19 +32,20 @@ app.add_middleware(
 )
 
 # routers
-app.include_router(auth_router)
-app.include_router(company_router)
-app.include_router(inventory_router)
-app.include_router(supplier_router)
-app.include_router(purchases_router)
-app.include_router(stock_transfer_router)
-app.include_router(employee_router)
-app.include_router(sales_counter_router)
-app.include_router(sales_godown_router)
-app.include_router(expense_router)
-app.include_router(category_router)
-app.include_router(attendance_router)
-app.include_router(dashboard_router)
+app.include_router(auth_router, prefix="/api")
+app.include_router(company_router, prefix="/api")
+app.include_router(inventory_router, prefix="/api")
+app.include_router(supplier_router, prefix="/api")
+app.include_router(purchases_router, prefix="/api")
+app.include_router(stock_transfer_router, prefix="/api")
+app.include_router(employee_router, prefix="/api")
+app.include_router(sales_counter_router, prefix="/api")
+app.include_router(sales_godown_router, prefix="/api")
+app.include_router(expense_router, prefix="/api")
+app.include_router(category_router, prefix="/api")
+app.include_router(attendance_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
+app.include_router(admin_dashboard_router, prefix="/api")
 app.mount(
     "/assets",
     StaticFiles(directory="../frontend/dist/assets"),

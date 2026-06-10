@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, TriangleAlert as AlertTriangle, Package, ChevronUp, ShieldAlert, ChevronDown, Upload, Download, FileDown, AlertCircle, TrendingDown, Clock3, TrendingUp, Warehouse, Store } from 'lucide-react'
+import { Plus, Search, CreditCard as Edit2, Trash2, X, Loader as Loader2, TriangleAlert as AlertTriangle, Package, ChevronUp, ShieldAlert, ChevronDown, Upload, Download, FileDown, AlertCircle, TrendingDown, Clock3, TrendingUp, Warehouse, Store, Printer, Minus } from 'lucide-react'
 import clsx from 'clsx'
 import * as XLSX from 'xlsx'
+import { useAuth } from '../context/AuthContext'
 
 // Import API functions
 import { getProducts, createProduct, updateProduct, deleteProduct } from '../apiservices/inventoryapi'
@@ -25,7 +26,7 @@ const DEFAULT_SUB_CATEGORIES = ['PREMIUM', 'SUPER PREMIUM', 'ULTRA PREMIUM', 'RE
 const PRODUCT_TYPES = ['IMFL', 'BEER', 'WINE', 'COUNTRY LIQUOR']
 
 const BOTTLE_SIZES_BY_TYPE = {
-  'IMFL': ['90ml', '180ml', '250ml', '330ml', '375ml', '500ml', '750ml', '1000ml'],
+  'IMFL': ['90ml', '180ml','200ml', '250ml', '330ml', '375ml', '500ml', '750ml', '1000ml'],
   'BEER': ['275ml', '330ml', '500ml', '650ml'],
   'WINE': ['375ml', '500ml', '750ml', '1000ml', '2000ml'],
   'COUNTRY LIQUOR': ['200ml', '300ml', '500ml', '750ml'],
@@ -35,6 +36,7 @@ const DEFAULT_SIZES = BOTTLE_SIZES_BY_TYPE['IMFL']
 const SIZE_TRADITIONAL_MAP = {
   '90ml':   { traditionalName: 'Peg / Miniature', bottlesPerCase: 96 },
   '180ml':  { traditionalName: 'Nip / Quarter',   bottlesPerCase: 48 },
+  '200ml':  { traditionalName: 'Nip + / Quarter+',bottlesPerCase: 24 },
   '250ml':  { traditionalName: 'Quarter Plus',    bottlesPerCase: 36 },
   '275ml':  { traditionalName: 'Small Bottle',    bottlesPerCase: 24 },
   '300ml':  { traditionalName: 'Half Plus',       bottlesPerCase: 30 },
@@ -60,7 +62,7 @@ const emptyForm = {
   unit: 'BOTTLE',
   packing_type: 'BOTTLE', purchase_rate: '', landing_cost: '', mrp: '', sale_price: '',
   discount_allowed: false, discount_percent: '', VAT_rate: '35',
-  margin_percent: '', hsn_code: '2208', opening_stock: '', current_stock: '',
+  margin_percent: '', hsn_code: '', opening_stock: '', current_stock: '',
   godown_stock: '', counter_stock: '',
   reorder_level: '5', maximum_stock: '', damage_stock: '0', reserved_stock: '0',
   stock_location: '', batch_number: '', expiry_date: '', manufacture_date: '',
@@ -112,7 +114,59 @@ function classifyProduct(p) {
   return 'fast_moving'
 }
 
+// ─── INLINE STOCK COMPONENT (Admin Only) ───
+function StockInput({ productId, field, value, onSave }) {
+  const [localVal, setLocalVal] = useState(String(value))
+
+  useEffect(() => {
+    setLocalVal(String(value))
+  }, [value])
+
+  const commitChange = () => {
+    if (parseInt(localVal) !== value) {
+      onSave(productId, field, localVal)
+    }
+  }
+
+  const handleIncrement = (delta) => {
+    const numVal = Math.max(0, (parseInt(localVal) || 0) + delta)
+    setLocalVal(String(numVal))
+    onSave(productId, field, numVal)
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <button 
+        type="button" 
+        onClick={() => handleIncrement(-1)}
+        className="p-1 rounded bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+      >
+        <Minus className="w-3 h-3" />
+      </button>
+      <input 
+        type="number"
+        value={localVal}
+        onChange={(e) => setLocalVal(e.target.value)}
+        onBlur={commitChange}
+        onKeyDown={(e) => e.key === 'Enter' && commitChange()}
+        className="w-14 text-center text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      <button 
+        type="button" 
+        onClick={() => handleIncrement(1)}
+        className="p-1 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+      >
+        <Plus className="w-3 h-3" />
+      </button>
+    </div>
+  )
+}
+
+
 export default function Inventory() {
+  const { user } = useAuth()
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN'
+
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -137,7 +191,7 @@ export default function Inventory() {
   const [companyId, setCompanyId] = useState(() => localStorage.getItem('selectedCompanyId') || null)
   const companyName = localStorage.getItem('selectedCompanyName') || 'Unknown Company'
 
-  // Listen for localStorage changes (if user switches company in another tab/sidebar)
+  // Listen for localStorage changes
   useEffect(() => {
     const syncCompanyId = () => {
       const newId = localStorage.getItem('selectedCompanyId')
@@ -177,7 +231,6 @@ export default function Inventory() {
     setLoading(true)
     setError('')
     try {
-      // ─── PASS COMPANY ID TO API ───
       const data = await getProducts(Number(companyId))
       setProducts(data)
     } catch (err) {
@@ -192,6 +245,31 @@ export default function Inventory() {
     const timestamp = Date.now().toString().slice(-6)
     const random = Math.floor(Math.random() * 100).toString().padStart(2, '0')
     return `${prefix}${timestamp}${random}`
+  }
+
+  // ─── INLINE STOCK UPDATE HANDLER ───
+  const handleInlineStockUpdate = async (productId, field, newValue) => {
+    const numValue = parseInt(newValue) || 0
+    const product = products.find(p => p.id === productId)
+    if (!product || product[field] === numValue) return // No change
+
+    const updatedData = {
+      ...product,
+      [field]: numValue,
+      current_stock: field === 'godown_stock' 
+        ? numValue + (product.counter_stock || 0) 
+        : (product.godown_stock || 0) + numValue
+    }
+
+    // Optimistic UI Update
+    setProducts(prev => prev.map(p => p.id === productId ? updatedData : p))
+
+    try {
+      await updateProduct(productId, updatedData)
+    } catch (err) {
+      alert('Failed to update stock')
+      fetchProducts() // Revert on failure
+    }
   }
 
   const handleBottleSizeChange = (newSize) => {
@@ -278,7 +356,7 @@ export default function Inventory() {
       purchase_rate: product.purchase_rate || '', landing_cost: product.landing_cost || '', mrp: product.mrp || '',
       sale_price: product.sale_price || '', discount_allowed: product.discount_allowed || false,
       discount_percent: product.discount_percent || '', VAT_rate: product.vat_rate || product.VAT_rate || '35',
-      margin_percent: product.margin_percent || '', hsn_code: product.hsn_code || '2208',
+      margin_percent: product.margin_percent || '', hsn_code: product.hsn_code || '',
       opening_stock: product.opening_stock || '', current_stock: product.current_stock || '',
       godown_stock: product.godown_stock || '', counter_stock: product.counter_stock || '',
       reorder_level: product.reorder_level || '5', maximum_stock: product.maximum_stock || '',
@@ -442,7 +520,7 @@ export default function Inventory() {
 
     const payload = {
       ...form,
-      company_id: Number(companyId), // ─── INJECT COMPANY ID ───
+      company_id: Number(companyId),
       purchase_rate: Number(form.purchase_rate) || 0, landing_cost: Number(form.landing_cost) || 0,
       mrp: Number(form.mrp) || 0, sale_price: Number(form.sale_price) || 0,
       discount_percent: Number(form.discount_percent) || 0, VAT_rate: Number(form.VAT_rate) || 0,
@@ -549,6 +627,62 @@ export default function Inventory() {
     )
   }
 
+  // ─── PRINT HANDLER ───
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank')
+    const currentCompanyName = localStorage.getItem('selectedCompanyName') || 'Store'
+
+    let tableRows = sorted.map(p => `
+      <tr>
+        <td style="padding: 8px; border: 1px solid #ddd;">${p.name || ''} ${p.brand ? '(' + p.brand + ')' : ''}</td>
+        <td style="padding: 8px; border: 1px solid #ddd;">${p.category || ''}</td>
+        <td style="padding: 8px; border: 1px solid #ddd;">${p.bottle_size || ''}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${p.godown_stock || 0}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${p.counter_stock || 0}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">${p.current_stock || 0}</td>
+      </tr>
+    `).join('')
+
+    const html = `
+      <html>
+        <head>
+          <title>Print Inventory - ${currentCompanyName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h2 { text-align: center; margin-bottom: 5px; }
+            p { text-align: center; color: #666; margin-top: 0; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { background-color: #f2f2f2; font-weight: bold; text-align: left; padding: 8px; border: 1px solid #ddd; }
+          </style>
+        </head>
+        <body>
+          <h2>${currentCompanyName}</h2>
+          <p>Inventory Report - ${new Date().toLocaleDateString()}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Size</th>
+                <th style="text-align: center;">Godown</th>
+                <th style="text-align: center;">Counter</th>
+                <th style="text-align: center;">Total Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `
+
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+  }
+
   return (
     <div className="space-y-4">
       <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
@@ -556,7 +690,6 @@ export default function Inventory() {
       {/* ─── Toolbar ─── */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
         <div className="flex flex-wrap gap-2 flex-1 items-center">
-          {/* ─── COMPANY BADGE ─── */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
             <Store className="w-3.5 h-3.5 text-primary-500" />
             <span className="text-xs font-semibold text-primary-700 dark:text-primary-300">{companyName}</span>
@@ -580,6 +713,10 @@ export default function Inventory() {
           </button>
           <button type="button" onClick={handleExportExcel} className="btn-secondary bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50">
             <FileDown className="w-4 h-4" /> Export
+          </button>
+
+          <button type="button" onClick={handlePrint} className="btn-secondary bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50">
+            <Printer className="w-4 h-4" /> Print
           </button>
           <button onClick={openAdd} className="btn-primary">
             <Plus className="w-4 h-4" /> Add Product
@@ -644,9 +781,9 @@ export default function Inventory() {
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
               {loading ? (
-                <tr><td colSpan={14} className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary-500 mx-auto" /></td></tr>
+                <tr><td colSpan={13} className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary-500 mx-auto" /></td></tr>
               ) : sorted.length === 0 ? (
-                <tr><td colSpan={14} className="text-center py-10 text-sm text-gray-400">No products found</td></tr>
+                <tr><td colSpan={13} className="text-center py-10 text-sm text-gray-400">No products found</td></tr>
               ) : sorted.map(p => {
                 const stock = p.current_stock ?? 0
                 const reorder = p.reorder_level ?? 0
@@ -666,18 +803,31 @@ export default function Inventory() {
                     <td className="table-cell text-xs text-gray-500">{p.traditional_name || '—'}</td>
                     <td className="table-cell text-xs text-gray-500 font-mono">{p.bottles_per_case || '—'}</td>
                     <td className="table-cell font-medium">₹{p.sale_price || 0}</td>
+                    
+                    {/* ─── GODOWN STOCK COLUMN ─── */}
                     <td className="table-cell">
-                      <div className="flex items-center gap-1.5">
-                        <Warehouse className="w-3 h-3 text-blue-400 flex-shrink-0" />
-                        <span className={clsx('font-semibold text-sm', godown > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400')}>{godown}</span>
-                      </div>
+                      {isAdmin ? (
+                        <StockInput productId={p.id} field="godown_stock" value={godown} onSave={handleInlineStockUpdate} />
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <Warehouse className="w-3 h-3 text-blue-400 flex-shrink-0" />
+                          <span className={clsx('font-semibold text-sm', godown > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400')}>{godown}</span>
+                        </div>
+                      )}
                     </td>
+
+                    {/* ─── COUNTER STOCK COLUMN ─── */}
                     <td className="table-cell">
-                      <div className="flex items-center gap-1.5">
-                        <Store className="w-3 h-3 text-purple-400 flex-shrink-0" />
-                        <span className={clsx('font-semibold text-sm', counter > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400')}>{counter}</span>
-                      </div>
+                      {isAdmin ? (
+                        <StockInput productId={p.id} field="counter_stock" value={counter} onSave={handleInlineStockUpdate} />
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <Store className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                          <span className={clsx('font-semibold text-sm', counter > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400')}>{counter}</span>
+                        </div>
+                      )}
                     </td>
+
                     <td className="table-cell">
                       <span className={clsx('font-semibold', stock <= reorder ? 'text-red-500' : stock <= reorder * 2 ? 'text-amber-500' : 'text-emerald-500')}>{stock}</span>
                       {stock <= reorder && stock > 0 && <AlertTriangle className="w-3 h-3 text-amber-500 inline ml-1" />}
@@ -949,7 +1099,6 @@ export default function Inventory() {
                   </div>
                 </div>
 
-                {/* Stock Split Info Box */}
                 <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
                   <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">📦 Stock Breakdown</p>
                   <div className="flex flex-wrap gap-4">

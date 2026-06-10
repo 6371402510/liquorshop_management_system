@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Wine, Eye, EyeOff, Loader as Loader2, CircleAlert as AlertCircle } from 'lucide-react'
+import { Wine, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { Sun, Moon } from 'lucide-react'
@@ -10,7 +10,6 @@ export default function Login() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('admin') // Default to admin
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -19,7 +18,8 @@ export default function Login() {
   const { signIn, signUp } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
-  const handleSubmit = async (e) => {
+
+   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setSuccess('')
@@ -31,36 +31,49 @@ export default function Login() {
         
         if (error) {
           setError(error.message)
-        } else {
-          // Role-based redirection
-          const userRole = data?.role; 
+        } else if (data) {
+          const role = data.role?.toUpperCase() // Safe uppercase comparison
           
-          if (userRole === 'salesman') {
-            navigate('/pos'); // Salesman goes straight to billing
+          // ─── ROLE BASED REDIRECTION ───
+          if (role === 'ADMIN') {
+            // Admin goes to the main Owner Dashboard
+            navigate('/admin-dashboard') 
+          } else if (role === 'MANAGER') {
+            // ✅ Manager goes directly to their assigned company dashboard
+            if (data.company_id) {
+              navigate(`/dashboard/${data.company_id}`)
+            } else {
+              setError("Your account is not assigned to any store.")
+            }
+          } else if (role === 'SALESMAN') {
+            // Salesman goes to POS screen of their assigned store
+            if (data.company_id) {
+              navigate(`/pos`)
+            } else {
+              setError("Your account is not assigned to any store.")
+            }
           } else {
-            navigate('/companies'); // Admin & Store Manager go to company selection
+            navigate('/')
           }
         }
       } else {
-        const { error, message } = await signUp(name, email, password, role)
+        // ─── SIGNUP (Creates Admin Account) ───
+        const { error, message } = await signUp(name, email, password)
         if (error) {
           setError(error.message)
         } else {
-          setSuccess(message || 'Account created! You can now sign in.')
+          setSuccess(message || 'Admin account created! You can now sign in.')
           setMode('login')
           setPassword('')
           setName('')
         }
       }
     } catch (err) {
-      // Catch any unexpected errors (like network failures)
       setError('An unexpected error occurred. Please try again.')
     } finally {
-      // THIS IS THE KEY FIX: This will ALWAYS run, ensuring the button doesn't stay stuck on "Please wait..."
       setLoading(false)
     }
   }
-
   const switchMode = () => {
     setMode(m => m === 'login' ? 'signup' : 'login')
     setError('')
@@ -73,7 +86,7 @@ export default function Login() {
       <div className="hidden lg:flex lg:w-1/2 relative bg-gray-900 flex-col items-center justify-center p-12 overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-72 h-72 rounded-full bg-amber-500 blur-3xl" />
-          <div className="absolute bottom-20 right-20 w-96 h-96 rounded-full bg-primary-600 blur-3xl" />
+          <div className="absolute bottom-20 right-20 w-96 h-96 rounded-full bg-blue-600 blur-3xl" />
         </div>
 
         <div className="relative z-10 text-center">
@@ -118,10 +131,10 @@ export default function Login() {
           </div>
 
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-            {mode === 'login' ? 'Welcome back' : 'Create account'}
+            {mode === 'login' ? 'Welcome back' : 'Create Admin Account'}
           </h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
-            {mode === 'login' ? 'Sign in to your store account' : 'Register a new store account'}
+            {mode === 'login' ? 'Sign in to your store account' : 'Register your business account'}
           </p>
 
           {error && (
@@ -148,7 +161,7 @@ export default function Login() {
                   required
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="Soumya"
+                  placeholder="John Doe"
                   className="input-field"
                 />
               </div>
@@ -192,31 +205,13 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Role Dropdown - Updated Options */}
-            {mode === 'signup' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Role
-                </label>
-                <select
-                  value={role}
-                  onChange={e => setRole(e.target.value)}
-                  className="input-field"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="store_manager">Store Manager</option>
-                  <option value="salesman">Salesman</option>
-                </select>
-              </div>
-            )}
-
             <button
               type="submit"
               disabled={loading}
               className="btn-primary w-full justify-center py-2.5 mt-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
+              {loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Admin Account'}
             </button>
           </form>
 

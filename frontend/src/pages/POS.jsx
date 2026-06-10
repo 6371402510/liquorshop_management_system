@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { db } from '../db';
 import {
   Search, Barcode, Plus, Minus, Trash2, ShoppingCart,
   Printer, CheckCircle, X, Loader2, CreditCard, Banknote,
@@ -162,15 +163,28 @@ export default function POS() {
     return cart.filter(i => i.productId === productId).length;
   };
 
-  const handleBarcodeInput = () => {
+  const handleBarcodeInput = async () => {
     const barcode = barcodeValue.trim();
     if (!barcode) return;
-    const product = products.find(p => p.barcode === barcode);
+
+    // 1. Try to find in the current state (fastest, comes from online API)
+    let product = products.find(p => p.barcode === barcode);
+
+    // 2. If not found in state, try IndexedDB (Works OFFLINE)
+    if (!product) {
+      try {
+        product = await db.products.where('barcode').equals(barcode).first();
+      } catch (err) {
+        console.error("Local DB search failed:", err);
+      }
+    }
+
     if (product) {
       addToCart(product);
     } else {
       alert('Product not found or not in counter stock');
     }
+
     setBarcodeValue('');
   };
 

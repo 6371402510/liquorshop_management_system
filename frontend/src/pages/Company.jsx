@@ -135,9 +135,21 @@ export default function Companies() {
   return (
     <div className="space-y-6">
       
-      {/* Top Bar */}
+      
+           {/* Top Bar */}
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Company Management</h2>
+        <div className="flex items-center gap-4">
+          {/* ─── BACK TO ADMIN DASHBOARD BUTTON ─── */}
+          <button 
+            onClick={() => navigate('/admin-dashboard')} 
+            className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+            title="Back to Admin Dashboard"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Company Management</h2>
+        </div>
+        
         {!showForm && (
           <button onClick={() => { handleCancelForm(); setShowForm(true); }} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" /> Add Company

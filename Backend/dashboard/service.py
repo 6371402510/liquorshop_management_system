@@ -3,252 +3,173 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, and_
 from typing import Optional
 
-# Import your existing models
+from company.model import Company
 from expenses.model import Expense, ExpenseCategory
 from employee.model import Employee
 from inventory.model import Product
 from purchases.model import Purchase, PurchaseItem
 from sales_counter.model import Sale, SaleItem
-from supplier.model import Supplier  # Adjust import path if needed
-from sales_godown.model import GodownSale, GodownSaleItem  # ← ADDED
-
+from supplier.model import Supplier
+from sales_godown.model import GodownSale, GodownSaleItem
 
 from . import schema
 
+# ─── HELPER: Safely extract ml from strings like '750ml' ───
+def parse_size_ml(size_str):
+    if not size_str:
+        return 0
+    digits = ''.join(filter(str.isdigit, str(size_str)))
+    return int(digits) if digits else 0
 
-def get_dashboard_data(db: Session, company_id: Optional[int] = None):
-    # ─── Time Boundaries ───
-    today_start = datetime.combine(datetime.now().date(), datetime.min.time())
-    month_start = datetime.now() - timedelta(days=30)
-    seven_days_ago = datetime.now() - timedelta(days=6)
 
-    # ─── Safe Company Filter Helper ───
+def get_dashboard_data(db: Session, company_id: Optional[int] = None, target_date_str: Optional[str] = None):
+    # ═══════════════════════════════════════
+    # DYNAMIC DATE LOGIC
+    # ═══════════════════════════════════════
+    if target_date_str:
+        try:
+            today_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            today_date = datetime.now().date()
+    else:
+        today_date = datetime.now().date()
+
+    today_start = datetime.combine(today_date, datetime.min.time())
+    month_start = datetime(today_date.year, today_date.month, 1)
+    seven_days_ago = datetime.combine(today_date - timedelta(days=6), datetime.min.time())
+
     def company_filter(model):
         if company_id and hasattr(model, 'company_id'):
             return model.company_id == company_id
         return True
 
     # ═══════════════════════════════════════
-    # 1. STATS (Combined Counter + Godown)
+    # 1. STATS
     # ═══════════════════════════════════════
-
-    # Today's Counter Sales
-    today_counter_data = db.query(
-        func.coalesce(func.sum(Sale.total_amount), 0),
-        func.count(Sale.id)
-    ).filter(
-        and_(Sale.created_at >= today_start, company_filter(Sale))
-    ).first()
-
-    # Today's Godown Sales
-    today_godown_data = db.query(
-        func.coalesce(func.sum(GodownSale.total_amount), 0),
-        func.count(GodownSale.id)
-    ).filter(
-        and_(GodownSale.created_at >= today_start, company_filter(GodownSale))
-    ).first()
-
+    today_counter_data = db.query(func.coalesce(func.sum(Sale.total_amount), 0), func.count(Sale.id)).filter(and_(Sale.created_at >= today_start, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).first()
+    today_godown_data = db.query(func.coalesce(func.sum(GodownSale.total_amount), 0), func.count(GodownSale.id)).filter(and_(GodownSale.created_at >= today_start, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).first()
+    
     today_sales = float(today_counter_data[0] or 0) + float(today_godown_data[0] or 0)
     today_orders = (today_counter_data[1] or 0) + (today_godown_data[1] or 0)
 
-    # Monthly Counter Sales
-    month_counter_sales = db.query(
-        func.coalesce(func.sum(Sale.total_amount), 0)
-    ).filter(
-        and_(Sale.created_at >= month_start, company_filter(Sale))
-    ).scalar()
-
-    # Monthly Godown Sales
-    month_godown_sales = db.query(
-        func.coalesce(func.sum(GodownSale.total_amount), 0)
-    ).filter(
-        and_(GodownSale.created_at >= month_start, company_filter(GodownSale))
-    ).scalar()
-
+    month_counter_sales = db.query(func.coalesce(func.sum(Sale.total_amount), 0)).filter(and_(Sale.created_at >= month_start, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).scalar()
+    month_godown_sales = db.query(func.coalesce(func.sum(GodownSale.total_amount), 0)).filter(and_(GodownSale.created_at >= month_start, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).scalar()
     month_sales = float(month_counter_sales or 0) + float(month_godown_sales or 0)
 
-    # Monthly Purchases
-    month_purchases = db.query(
-        func.coalesce(func.sum(Purchase.total_amount), 0)
-    ).filter(
-        and_(Purchase.created_at >= month_start, company_filter(Purchase))
-    ).scalar()
+    month_purchases = float(db.query(func.coalesce(func.sum(Purchase.total_amount), 0)).filter(and_(Purchase.created_at >= month_start, Purchase.created_at <= today_start + timedelta(days=1), company_filter(Purchase))).scalar() or 0)
+    month_expenses = float(db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(and_(Expense.expense_date >= month_start.date(), Expense.expense_date <= today_date, company_filter(Expense))).scalar() or 0)
+    
+    total_products = db.query(func.count(Product.id)).filter(company_filter(Product)).scalar() or 0
+    low_stock_count = db.query(func.count(Product.id)).filter(and_(Product.current_stock <= Product.reorder_level, company_filter(Product))).scalar() or 0
+    total_suppliers = db.query(func.count(Supplier.id)).filter(and_(Supplier.is_active == True, company_filter(Supplier))).scalar() or 0
+    total_employees = db.query(func.count(Employee.id)).filter(and_(Employee.status == "ACTIVE", company_filter(Employee))).scalar() or 0
 
-    # Monthly Expenses
-    month_expenses = db.query(
-        func.coalesce(func.sum(Expense.amount), 0)
-    ).filter(
-        and_(Expense.expense_date >= month_start.date(), company_filter(Expense))
-    ).scalar()
+    total_bottles_in_stock = db.query(func.coalesce(func.sum(Product.current_stock), 0)).filter(company_filter(Product)).scalar() or 0
+    counter_bottles_sold = db.query(func.coalesce(func.sum(SaleItem.quantity), 0)).join(Sale, SaleItem.sale_id == Sale.id).filter(and_(Sale.created_at >= month_start, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).scalar() or 0
+    godown_bottles_sold = db.query(func.coalesce(func.sum(GodownSaleItem.quantity), 0)).join(GodownSale, GodownSaleItem.sale_id == GodownSale.id).filter(and_(GodownSale.created_at >= month_start, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).scalar() or 0
+    total_bottles_sold = int(counter_bottles_sold) + int(godown_bottles_sold)
 
-    # Total Products
-    total_products = db.query(func.count(Product.id)).filter(company_filter(Product)).scalar()
-
-    # Low Stock Count
-    low_stock_count = db.query(func.count(Product.id)).filter(
-        and_(Product.current_stock <= Product.reorder_level, company_filter(Product))
-    ).scalar()
-
-    # Total Active Suppliers
-    total_suppliers = db.query(func.count(Supplier.id)).filter(
-        and_(Supplier.is_active == True, company_filter(Supplier))
-    ).scalar()
-
-    # Total Active Employees
-    total_employees = db.query(func.count(Employee.id)).filter(
-        and_(Employee.status == "ACTIVE", company_filter(Employee))
-    ).scalar()
+    total_bottles_purchased = db.query(func.coalesce(func.sum(PurchaseItem.total_bottles), 0)).join(Purchase, PurchaseItem.purchase_id == Purchase.id).filter(and_(Purchase.created_at >= month_start, Purchase.created_at <= today_start + timedelta(days=1), company_filter(Purchase))).scalar() or 0
 
     stats = schema.DashboardStats(
-        todaySales=today_sales,
-        todayOrders=today_orders,
-        monthSales=month_sales,
-        monthPurchases=float(month_purchases or 0),
-        monthExpenses=float(month_expenses or 0),
-        totalProducts=total_products or 0,
-        lowStockCount=low_stock_count or 0,
-        totalSuppliers=total_suppliers or 0,
-        totalEmployees=total_employees or 0,
+        todaySales=today_sales, todayOrders=today_orders, monthSales=month_sales,
+        monthPurchases=month_purchases, monthExpenses=month_expenses,
+        totalProducts=total_products, lowStockCount=low_stock_count,
+        totalSuppliers=total_suppliers, totalEmployees=total_employees,
+        totalBottlesInStock=int(total_bottles_in_stock),
+        totalBottlesSold=total_bottles_sold,
+        totalBottlesPurchased=int(total_bottles_purchased)
     )
 
     # ═══════════════════════════════════════
-    # 2. DAILY SALES CHART (Combined)
+    # 2. CHARTS
     # ═══════════════════════════════════════
+    counter_daily_db = db.query(cast(Sale.created_at, Date).label('date'), func.coalesce(func.sum(Sale.total_amount), 0).label('sales')).filter(and_(Sale.created_at >= seven_days_ago, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).group_by(cast(Sale.created_at, Date)).all()
+    godown_daily_db = db.query(cast(GodownSale.created_at, Date).label('date'), func.coalesce(func.sum(GodownSale.total_amount), 0).label('sales')).filter(and_(GodownSale.created_at >= seven_days_ago, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).group_by(cast(GodownSale.created_at, Date)).all()
     
-    # Counter Sales grouped by day
-    counter_daily_db = db.query(
-        cast(Sale.created_at, Date).label('date'),
-        func.coalesce(func.sum(Sale.total_amount), 0).label('sales')
-    ).filter(
-        and_(Sale.created_at >= seven_days_ago, company_filter(Sale))
-    ).group_by(cast(Sale.created_at, Date)).all()
-
-    # Godown Sales grouped by day
-    godown_daily_db = db.query(
-        cast(GodownSale.created_at, Date).label('date'),
-        func.coalesce(func.sum(GodownSale.total_amount), 0).label('sales')
-    ).filter(
-        and_(GodownSale.created_at >= seven_days_ago, company_filter(GodownSale))
-    ).group_by(cast(GodownSale.created_at, Date)).all()
-
-    # Merge both dictionaries
     sales_map = {}
-    for row in counter_daily_db:
-        sales_map[str(row.date)] = float(row.sales)
-    for row in godown_daily_db:
-        sales_map[str(row.date)] = sales_map.get(str(row.date), 0) + float(row.sales)
+    for row in counter_daily_db: sales_map[str(row.date)] = float(row.sales)
+    for row in godown_daily_db: sales_map[str(row.date)] = sales_map.get(str(row.date), 0) + float(row.sales)
+    daily_sales_list = [schema.DailySale(date=(today_date - timedelta(days=i)).strftime('%b %d'), sales=sales_map.get(str(today_date - timedelta(days=i)), 0)) for i in range(6, -1, -1)]
 
-    daily_sales_list = []
-    for i in range(6, -1, -1):
-        date_obj = datetime.now().date() - timedelta(days=i)
-        date_str = str(date_obj)
-        daily_sales_list.append(schema.DailySale(
-            date=date_obj.strftime('%b %d'),
-            sales=sales_map.get(date_str, 0)
-        ))
-
-    # ═══════════════════════════════════════
-    # 3. DAILY PURCHASES CHART
-    # ═══════════════════════════════════════
-    daily_purchases_db = db.query(
-        cast(Purchase.created_at, Date).label('date'),
-        func.coalesce(func.sum(Purchase.total_amount), 0).label('purchases')
-    ).filter(
-        and_(Purchase.created_at >= seven_days_ago, company_filter(Purchase))
-    ).group_by(cast(Purchase.created_at, Date)).all()
-
+    daily_purchases_db = db.query(cast(Purchase.created_at, Date).label('date'), func.coalesce(func.sum(Purchase.total_amount), 0).label('purchases')).filter(and_(Purchase.created_at >= seven_days_ago, Purchase.created_at <= today_start + timedelta(days=1), company_filter(Purchase))).group_by(cast(Purchase.created_at, Date)).all()
     purchases_map = {str(row.date): float(row.purchases) for row in daily_purchases_db}
-    daily_purchases_list = []
-    for i in range(6, -1, -1):
-        date_obj = datetime.now().date() - timedelta(days=i)
-        date_str = str(date_obj)
-        daily_purchases_list.append(schema.DailyPurchase(
-            date=date_obj.strftime('%b %d'),
-            purchases=purchases_map.get(date_str, 0)
-        ))
+    daily_purchases_list = [schema.DailyPurchase(date=(today_date - timedelta(days=i)).strftime('%b %d'), purchases=purchases_map.get(str(today_date - timedelta(days=i)), 0)) for i in range(6, -1, -1)]
+
+    category_data_db = db.query(Product.category.label('name'), func.count(Product.id).label('value')).filter(company_filter(Product)).group_by(Product.category).all()
+    category_data = [schema.CategoryData(name=row.name or 'OTHER', value=row.value) for row in category_data_db]
+
+    expense_breakdown_db = db.query(Expense.category.label('category'), func.coalesce(func.sum(Expense.amount), 0).label('total_amount')).filter(and_(Expense.expense_date >= month_start.date(), Expense.expense_date <= today_date, company_filter(Expense))).group_by(Expense.category).all()
+    expense_breakdown = [schema.ExpenseBreakdown(category=row.category or 'OTHER', total_amount=float(row.total_amount)) for row in expense_breakdown_db]
 
     # ═══════════════════════════════════════
-    # 4. CATEGORY BREAKDOWN (Pie Chart)
+    # 3. LISTS
     # ═══════════════════════════════════════
-    category_data_db = db.query(
-        Product.category.label('name'),
-        func.count(Product.id).label('value')
-    ).filter(company_filter(Product)).group_by(Product.category).all()
-
-    category_data = [
-        schema.CategoryData(name=row.name or 'OTHER', value=row.value)
-        for row in category_data_db
-    ]
-
-    # ═══════════════════════════════════════
-    # 5. EXPENSE BREAKDOWN BY CATEGORY
-    # ═══════════════════════════════════════
-    expense_breakdown_db = db.query(
-        Expense.category.label('category'),
-        func.coalesce(func.sum(Expense.amount), 0).label('total_amount')
-    ).filter(
-        and_(Expense.expense_date >= month_start.date(), company_filter(Expense))
-    ).group_by(Expense.category).all()
-
-    expense_breakdown = [
-        schema.ExpenseBreakdown(category=row.category or 'OTHER', total_amount=float(row.total_amount))
-        for row in expense_breakdown_db
-    ]
-
-    # ═══════════════════════════════════════
-    # 6. RECENT SALES (Combined Counter + Godown)
-    # ═══════════════════════════════════════
-    recent_counter_sales = db.query(Sale).filter(
-        company_filter(Sale)
-    ).order_by(Sale.created_at.desc()).limit(6).all()
-
-    recent_godown_sales = db.query(GodownSale).filter(
-        company_filter(GodownSale)
-    ).order_by(GodownSale.created_at.desc()).limit(6).all()
-
-    # Merge and map to schema
+    recent_counter_sales = db.query(Sale).filter(and_(Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).order_by(Sale.created_at.desc()).limit(6).all()
+    recent_godown_sales = db.query(GodownSale).filter(and_(GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).order_by(GodownSale.created_at.desc()).limit(6).all()
+    
     all_recent_sales = []
-    for s in recent_counter_sales:
-        all_recent_sales.append(schema.RecentSale(
-            id=s.id, invoice_number=s.invoice_number, customer_name=s.customer_name,
-            total_amount=s.total_amount, payment_mode=s.payment_mode,
-            created_at=s.created_at, type="COUNTER"
-        ))
-    for s in recent_godown_sales:
-        all_recent_sales.append(schema.RecentSale(
-            id=s.id, invoice_number=s.invoice_number, customer_name=s.customer_name,
-            total_amount=s.total_amount, payment_mode=s.payment_mode,
-            created_at=s.created_at, type="GODOWN"
-        ))
-
-    # Sort combined list by created_at descending, then take top 6
+    for s in recent_counter_sales: all_recent_sales.append(schema.RecentSale(id=s.id, invoice_number=s.invoice_number, customer_name=s.customer_name, total_amount=s.total_amount, payment_mode=s.payment_mode, created_at=s.created_at, type="COUNTER"))
+    for s in recent_godown_sales: all_recent_sales.append(schema.RecentSale(id=s.id, invoice_number=s.invoice_number, customer_name=s.customer_name, total_amount=s.total_amount, payment_mode=s.payment_mode, created_at=s.created_at, type="GODOWN"))
     all_recent_sales.sort(key=lambda x: x.created_at, reverse=True)
     recent_sales = all_recent_sales[:6]
 
-    # ═══════════════════════════════════════
-    # 7. RECENT PURCHASES (Last 6)
-    # ═══════════════════════════════════════
-    recent_purchases = db.query(Purchase).filter(
-        company_filter(Purchase)
-    ).order_by(Purchase.created_at.desc()).limit(6).all()
+    recent_purchases = db.query(Purchase).filter(and_(Purchase.created_at <= today_start + timedelta(days=1), company_filter(Purchase))).order_by(Purchase.created_at.desc()).limit(6).all()
+    low_stock_items = db.query(Product).filter(and_(Product.current_stock <= Product.reorder_level, company_filter(Product))).order_by(Product.current_stock.asc()).limit(5).all()
 
     # ═══════════════════════════════════════
-    # 8. LOW STOCK ITEMS (Top 5)
+    # 4. NEW METRICS
     # ═══════════════════════════════════════
-    low_stock_items = db.query(Product).filter(
-        and_(Product.current_stock <= Product.reorder_level, company_filter(Product))
-    ).order_by(Product.current_stock.asc()).limit(5).all()
+    counter_modes = db.query(Sale.payment_mode.label('mode'), func.coalesce(func.sum(Sale.total_amount), 0).label('total_amount')).filter(and_(Sale.created_at >= month_start, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).group_by(Sale.payment_mode).all()
+    godown_modes = db.query(GodownSale.payment_mode.label('mode'), func.coalesce(func.sum(GodownSale.total_amount), 0).label('total_amount')).filter(and_(GodownSale.created_at >= month_start, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).group_by(GodownSale.payment_mode).all()
+    
+    mode_map = {}
+    for row in counter_modes: mode_map[row.mode.upper() or 'UNKNOWN'] = float(row.total_amount)
+    for row in godown_modes: mode_map[row.mode.upper() or 'UNKNOWN'] = mode_map.get(row.mode.upper() or 'UNKNOWN', 0) + float(row.total_amount)
+    payment_mode_breakdown = [schema.PaymentModeBreakdown(mode=mode, total_amount=amt) for mode, amt in mode_map.items()]
 
-    # ═══════════════════════════════════════
-    # BUILD RESPONSE
-    # ═══════════════════════════════════════
+    counter_brands = db.query(Product.brand.label('brand'), func.coalesce(func.sum(SaleItem.quantity), 0).label('bottles_sold')).join(SaleItem, SaleItem.product_id == Product.id).join(Sale, SaleItem.sale_id == Sale.id).filter(and_(Sale.created_at >= month_start, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).group_by(Product.brand).order_by(func.sum(SaleItem.quantity).desc()).limit(5).all()
+    godown_brands = db.query(Product.brand.label('brand'), func.coalesce(func.sum(GodownSaleItem.quantity), 0).label('bottles_sold')).join(GodownSaleItem, GodownSaleItem.product_id == Product.id).join(GodownSale, GodownSaleItem.sale_id == GodownSale.id).filter(and_(GodownSale.created_at >= month_start, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).group_by(Product.brand).order_by(func.sum(GodownSaleItem.quantity).desc()).limit(5).all()
+    
+    brand_map = {}
+    for row in counter_brands: brand_map[row.brand or 'Unknown'] = int(row.bottles_sold)
+    for row in godown_brands: brand_map[row.brand or 'Unknown'] = brand_map.get(row.brand or 'Unknown', 0) + int(row.bottles_sold)
+    
+    sorted_brands = sorted(brand_map.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_selling_brands = [schema.TopSellingBrand(brand=br, bottles_sold=qty) for br, qty in sorted_brands]
+
+    # Excise Summary
+    products_for_excise = db.query(Product.current_stock, Product.bottle_size, Product.product_type).filter(company_filter(Product)).all()
+    stock_bl, stock_lpl = 0.0, 0.0
+    for p in products_for_excise:
+        size_ml = parse_size_ml(p.bottle_size)
+        stock = p.current_stock or 0
+        if size_ml > 0 and stock > 0:
+            bl = (stock * size_ml) / 1000
+            stock_bl += bl
+            if p.product_type != 'BEER': stock_lpl += bl * 0.75
+
+    counter_sold_items = db.query(SaleItem.quantity.label('qty'), Product.bottle_size, Product.product_type).join(Product, SaleItem.product_id == Product.id).join(Sale, SaleItem.sale_id == Sale.id).filter(and_(Sale.created_at >= month_start, Sale.created_at <= today_start + timedelta(days=1), company_filter(Sale))).all()
+    godown_sold_items = db.query(GodownSaleItem.quantity.label('qty'), Product.bottle_size, Product.product_type).join(Product, GodownSaleItem.product_id == Product.id).join(GodownSale, GodownSaleItem.sale_id == GodownSale.id).filter(and_(GodownSale.created_at >= month_start, GodownSale.created_at <= today_start + timedelta(days=1), company_filter(GodownSale))).all()
+    
+    sold_bl, sold_lpl = 0.0, 0.0
+    for item in list(counter_sold_items) + list(godown_sold_items):
+        size_ml = parse_size_ml(item.bottle_size)
+        qty = item.qty or 0
+        if size_ml > 0 and qty > 0:
+            bl = (qty * size_ml) / 1000
+            sold_bl += bl
+            if item.product_type != 'BEER': sold_lpl += bl * 0.75
+
+    excise_summary = schema.ExciseSummary(
+        stock_bl=round(stock_bl, 2), stock_lpl=round(stock_lpl, 2),
+        sold_bl=round(sold_bl, 2), sold_lpl=round(sold_lpl, 2)
+    )
+
     return schema.DashboardResponse(
-        stats=stats,
-        dailySales=daily_sales_list,
-        dailyPurchases=daily_purchases_list,
-        categoryData=category_data,
-        expenseBreakdown=expense_breakdown,
-        recentSales=recent_sales,
-        recentPurchases=recent_purchases,
-        lowStockItems=low_stock_items,
+        stats=stats, dailySales=daily_sales_list, dailyPurchases=daily_purchases_list,
+        categoryData=category_data, expenseBreakdown=expense_breakdown,
+        recentSales=recent_sales, recentPurchases=recent_purchases, lowStockItems=low_stock_items,
+        paymentModeBreakdown=payment_mode_breakdown, topSellingBrands=top_selling_brands,
+        exciseSummary=excise_summary
     )

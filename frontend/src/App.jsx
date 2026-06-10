@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
-import { Loader2 } from 'lucide-react' // For loading spinner
+import { Loader2 } from 'lucide-react'
 
 import Layout from './components/Layout/Layout'
 import Login from './pages/Login'
@@ -24,16 +24,13 @@ import StockTransferReport from './pages/StockTransferReport.jsx'
 import ExciseReports from './pages/ExciseRegister.jsx'
 import EmployeeAttendance from './pages/EmployeeAttendance.jsx'
 import AttendanceReports from './pages/AttendanceReports.jsx'
-import IFMLDashboard from './pages/IFML.jsx'
+import AdminDashboard from './pages/admindashboard.jsx'
 import SalaryReport from './pages/SalaryReport.jsx'
+import StaffManagement from './pages/StaffManagement.jsx' // Ensure .jsx is here
 
-
-
-// 1. Create a ProtectedRoute component
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
 
-  // Show a loading spinner while checking localStorage for the token
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
@@ -42,34 +39,20 @@ function ProtectedRoute({ children }) {
     )
   }
 
-  // If there is no user, redirect to the login page
   if (!user) {
     return <Navigate to="/login" replace />
   }
 
-  // If the user is logged in, render the child components
   return children
 }
 
 function AppRoutes() {
   return (
     <Routes>
-      {/* === PUBLIC ROUTE === */}
-      {/* If user is already logged in and tries to go to /login, redirect them away */}
       <Route path="/login" element={<Login />} />
-
-      {/* === PROTECTED STANDALONE PAGE (No Sidebar) === */}
-      <Route 
-        path="/companies" 
-        element={
-          <ProtectedRoute>
-            <Companies />
-          </ProtectedRoute>
-        } 
-      />
-
-      {/* === PROTECTED MAIN APP PAGES (With Sidebar & Header) === */}
-      {/* Notice we wrap the Layout itself with ProtectedRoute */}
+      <Route path="/companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
+      <Route path="/admin-dashboard" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+      <Route path="/admin-staff" element={<ProtectedRoute><StaffManagement /></ProtectedRoute>} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard/:companyId" element={<Dashboard />} />
         <Route path="/pos" element={<POS />} />
@@ -89,13 +72,12 @@ function AppRoutes() {
         <Route path="/excise-reports" element={<ExciseReports />} />
         <Route path="/employee-attendance" element={<EmployeeAttendance />} />
         <Route path="/attendance-reports" element={<AttendanceReports />} />
-      
-        <Route path="/ifml-dashboard" element={<IFMLDashboard />} />
         <Route path="/salary-report" element={<SalaryReport />} />
+
+        {/* ─── ADMIN ROUTES ─── */}
 
       </Route>
 
-      {/* === REDIRECTS === */}
       <Route path="/" element={<Navigate to="/companies" replace />} />
       <Route path="*" element={<Navigate to="/companies" replace />} />
     </Routes>

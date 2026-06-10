@@ -1,24 +1,25 @@
 from pydantic import BaseModel, EmailStr
-from typing import Literal # Import Literal
+from typing import Literal, Optional, List
 
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str
 
-
 class RegisterSchema(BaseModel):
     name: str
     email: EmailStr
     password: str
-    # Enforce exactly these three roles
-    role: Literal["admin", "store_manager", "salesman"] 
-
+    # Public signup is always ADMIN. This field is used when Admin creates users internally.
+    role: Optional[Literal["ADMIN", "MANAGER", "SALESMAN"]] = "ADMIN"
+    company_id: Optional[int] = None
 
 class UserResponse(BaseModel):
     id: int
     name: str
     email: str
     role: str
+    company_id: Optional[int] = None
+    is_active: bool = True  # <-- ADDED THIS
 
     class Config:
         from_attributes = True
